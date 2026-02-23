@@ -1,0 +1,119 @@
+(Transcribed by TurboScribe.ai. Go Unlimited to remove this message.)
+
+D'accord monsieur, vous m'aviez dit quoi ? Donc, une simulation peut être basée sur ça. J'ai juste écrit footchat, ça va être là, tu peux checker. Ça c'est beaucoup plus pour les drones.
+
+Oui, j'ai vu déjà gazebo, c'est pour eux. Ouais. D'accord.
+
+Donc, ça c'est pour la couche quatrième, pour simuler les robots, etc. C'est ça ? Oui. D'accord.
+
+Donc déjà, tu peux commencer par une architecture, disons, gamarabic. C'est-à-dire, Tora gazebo, Sightel, ça c'est pour tout ce qui est physics. Oui.
+
+Et drone, ça c'est dans le cadre des drones. Je ne vous dis pas, c'est-à-dire que vous devriez faire une simulation sur les drones. Mais il y a d'autres simulateurs.
+
+Oui, d'accord. Il y a d'autres types. Mais chez gazebo, c'est à base de bras.
+
+Je parle de bras parce qu'il y a beaucoup plus de data sets par rapport à ça. Oui, c'est vrai. Que les drones, pour faire un contrôle pour un drone.
+
+Mais disons pour déjà, tu peux commencer à voir si on peut avoir, je ne sais pas, pour le contrôle de drone ou là, si on peut faire un truc avec ça. Mais disons comme squelette pour simulation, il peut y avoir ça. C'est-à-dire, ça ne demande pas beaucoup de compute, je pense.
+
+Vous demandez quoi comme PC ou là? Est-ce que vous avez peut-être des GPU simples? Est-ce qu'il y a des PC pour rendering? Il n'y a pas un PC pour rendering ou là. C'est-à-dire, il n'y a pas de VR. Normalement, il y en a, mais il n'y a pas une vidéo avec des rides.
+
+Normalement, c'est ça. De toute façon, c'est juste la partie visualisation. De toute façon, tu peux faire fonctionner gazebo sans visualisation.
+
+D'accord. Parce que le rendering, ça demande du compute. Après, cette partie, c'est bien documenté.
+
+C'est-à-dire, c'est straightforward si tu veux installer ça. Quelle partie est Cytel? Tout ce qui est. C'est-à-dire, même les liens avec gazebo ou Cytel.
+
+C'est Cytel. Ah, ok. Ce qui serait bien, c'est de lier la simulation physique avec un truc de communication.
+
+Disons qu'on a plusieurs drones. Au cas de Cytel, tu peux instancier plusieurs threads. Pour la process, il y en a une.
+
+Pour la communication entre eux, tu dois inclure ce qui est latence, channel model. Pour faire ça, tu peux utiliser un S3. Éventuellement, si on en a. Mais je pense que Radevalex, ça prend un peu.
+
+Tu as besoin de compute. Mais tu peux essayer. Je m'excuse.
+
+Est-ce que vous pouvez me répéter pour ce qui est de la présentation? Est-ce que tu pourrais répéter? Oui. Pour la simulation physique, derrière la partie rendering, c'est gazebo. Tu peux faire tout ce qui est physique, aérodynamique, gravité et tout.
+
+Au cas de la partie flight controller et drone, c'est Radex Cytel. Pour lier les deux, c'est à dire que la partie est documentée et tu peux le faire directement. C'est juste une question d'installation.
+
+Du coup, pour avoir un partage de connaissances et tout ce qu'on m'a expliqué, il faudrait avoir plusieurs robots. Plusieurs drones. Du coup, tu peux instantier plusieurs UAVC sur des process.
+
+Et pour avoir une communication entre eux, il faudrait modéliser le channel de communication. Pour faire ça, tu peux utiliser un S3. Oui.
+
+Une partie que je n'ai jamais essayé, mais c'est faisable, c'est d'interconnecter Cytel avec un S3. Il y a des personnes d'une autre spécialité qui ont fait un projet avec un S3. Après, tu peux aussi rajouter ChannelMetrix avec Sion.
+
+Parce qu'il y a déjà une librairie qui s'appelle NS3 Sion. Donc, tu peux voir ça. Et du coup, déjà par rapport à la communication entre les drones et tout, tu peux avoir tout ce qui est Signal Strength.
+
+Donc, quand ils bougent dans un environnement qui est en mode 3D, la communication change. Tout ce qui est Signal Strength, la pense, ainsi de suite. Donc, en utilisant ces données, il serait bien d'avoir une intelligence peut-être partagée entre les drones HADO.
+
+C'est-à-dire comment ils vont naviguer en entendant. Ils prennent en compte aussi la communication. Donc, chaque drone partage sa vidéo, sa perception.
+
+Et ils doivent agir ensemble pour chauffer l'environnement. Et qu'ils naviguent autonomesment. D'accord, monsieur.
+
+Je ne vois pas l'architecture exactement malée. Parce qu'il y a un drone réel et tout. Mais ce qu'il y a, c'est juste le Digital Twin.
+
+Donc, HAD, ça peut être utilisé déjà pour entraîner GEPA. Générer des données. Ou alors, si on peut utiliser déjà des modèles qui sont entraînés et avoir un certain contrôle.
+
+Si c'est trop compliqué pour GEPA, tu peux aussi voir Active Inference. Il est straightforward. Voilà des trucs, Reinforcement Learning.
+
+Et on se base sur modéliser l'input. Mais bon, la priorité maintenant déjà, c'est de faire une simulation. Après, je vous fais la suite.
+
+D'accord, monsieur. Ok, monsieur. Donc, pour l'instant, tu peux déjà commencer par installer HAD et Gazebo et tout.
+
+Oui. Tu peux voir comment connecter un SPI sur un ordre. Si tu peux avoir une simulation qui a plusieurs drones et qui communiquent.
+
+Tu peux noter les positions. Oui. Et en prenant en compte aussi la latence.
+
+Donc, qui bat un drone une valeur et un autre drone. La valeur réaliste, il faut dire un certain temps qui est réaliste. Par rapport à WinRAR.
+
+Et ça, ANS3 peut te donner la latence. D'accord, oui. Du coup, on a un code qui peut injecter les délais.
+
+Et les délais, les valeurs, ça va être l'output de l'ANS3 ou l'ANS3 plus jeune. Tu vois. Donc, c'est ça.
+
+Par rapport aux drones, je pense que c'est faisable. Mais si tu trouves qu'il y a un autre type de simulation. Comparé à UAV sim, à part les cycles.
+
+S'il y a autre chose avec un robot manipulateur. Où il y a plus de datasets par rapport à HAD et Gazebo. Tu peux voir ça aussi.
+
+Je pense que tu dois faire ça. D'accord, je vais chercher sur ça. Ok.
+
+Mais peut-être que c'est un truc comme ça. Quand il y a plusieurs drones. Donc, UAV sim I avec physics.
+
+Et tu peux avoir plusieurs drones qui communiquent. D'accord, monsieur. Voilà, bon.
+
+T'as quoi de GPU ou de laptop ? Non, je ne sais pas. Je vais demander l'accès à la VM. Sinon, je vais demander à l'un des PC.
+
+D'accord. De toute façon, c'est beaucoup plus par rapport au rendering de Gazebo. Oui, vous m'avez dit.
+
+Mais tu peux désactiver le rendering. Après HAD, c'est juste des process. Oui.
+
+Je ne sais pas combien, mais un PC normal, il peut faire l'affaire. D'accord, monsieur. Je vais commencer ça.
+
+Merci pour l'explication. Donc, prochainement, tu peux montrer ce que tu as fait en installation. On va peut-être avoir une partie.
+
+Tu peux finaliser la simulation en bulk. C'est déjà ça. D'accord, monsieur.
+
+C'est nécessaire pour la suite. Oui, j'ai compris. D'accord.
+
+Donc, c'est l'assimilation HAD ? Oui. Mais ne prends pas les liens en coalescence. Tu dois avoir ça.
+
+Alors HAD, c'est ça. Mais c'est juste le scala-général. Tu peux avoir Gazebo, UAV, Cycle, ou NS3.
+
+C'est ça. Oui, d'accord, monsieur. Voilà.
+
+On essaie d'avancer, faire de la partie. D'accord, monsieur. L'implémentation, parce qu'après l'écriture, tu peux écrire quand tu as des résultats.
+
+Oui, oui. Voilà. L'Ouag Tahir avance rapidement.
+
+Déjà en février. Normalement, je vais faire une session de rattrapage. Je ne pense pas qu'on puisse compléter l'email.
+
+Parce qu'il ne nous reste que trois mois. Lâche les soutenances en mai. Non, les soutenances en juin.
+
+Oui. D'accord. Si vous avez des questions, vous pouvez les poser.
+
+J'essaie d'envoyer une réunion récursive. On continue chaque deux semaines, ou on la fait chaque semaine ? Je peux envoyer une réunion récursive. On la fait chaque deux semaines, ou chaque semaine ? Qu'est-ce qui vous arrange ? Oui, j'enlève la pression chaque semaine.
+
+D'accord, ok. Ok, à la prochaine. Merci, au revoir.
+
+Au revoir.
+
+(Transcribed by TurboScribe.ai. Go Unlimited to remove this message.)

@@ -1,0 +1,4 @@
+Pour l’environnement dans la simulation, tu peux montrer les drones dans un entrepôt (Warehouse).
+Pour NS-3, ce serait bien d’avoir NS3-Sionna :
+https://github.com/tkn-tub/ns3sionna
+L’idéal serait d’avoir la puissance du signal (RSSI) et la latence entre deux drones.
