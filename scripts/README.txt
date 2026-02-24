@@ -54,85 +54,88 @@ SYSTÈME VÉRIFIÉ :
   │    commander land       → le drone atterrit                        │
   └─────────────────────────────────────────────────────────────────────┘
 
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  Étape 5 (bonus) : Vol automatique                                 │
-  │  Pendant que le script 04 tourne dans un terminal,                 │
-  │  ouvre un AUTRE terminal et lance :                                │
-  │  $ ./05_auto_flight_test.sh                                        │
-  │  → arm, takeoff 10m, hover 10s, land automatiquement              │
-  └─────────────────────────────────────────────────────────────────────┘
-
 ==========================================================================
                         ARCHITECTURE
 ==========================================================================
 
   ┌─────────────────────────────────────────────────────┐
-  │                   Gazebo Garden                     │
-  │         (Physique : aérodynamique, gravité)         │
-  │         (Rendering 3D via GPU RTX 2060)             │
-  │              Environnement : Warehouse              │
+  │               Gazebo Harmonic                       │
+  │       (Physique : aérodynamique, gravité)           │
+  │       (Rendering 3D via GPU — optionnel)            │
+  │            Environnement : Warehouse                │
+  │            30m x 20m x 6m + étagères                │
   └──────────────────────┬──────────────────────────────┘
-                         │  Bridge (automatique)
+                         │  Plugin ardupilot_gazebo
+                         │  (JSON, ports 9002+I*10)
   ┌──────────────────────┴──────────────────────────────┐
-  │                  PX4 SITL (x500)                    │
-  │         (Flight Controller simulé)                  │
+  │            ArduPilot SITL (ArduCopter)              │
+  │         Flight Controller simulé — Iris             │
   │         Protocole : MAVLink                         │
-  │         Port UDP : 14540 / 14550                    │
+  │         TCP : 5760 + I*10 (par instance)            │
   └──────────────────────┬──────────────────────────────┘
                          │
   ┌──────────────────────┴──────────────────────────────┐
-  │        MAVProxy / QGroundControl / pymavlink        │
-  │         (Contrôle et monitoring externe)            │
+  │        pymavlink / MAVProxy / QGroundControl        │
+  │          (Contrôle et monitoring externe)            │
   └─────────────────────────────────────────────────────┘
 
 ==========================================================================
-                    PROCHAINES ÉTAPES (Phase 2+)
+                    PHASE 2 : MULTI-DRONES + WAREHOUSE
 ==========================================================================
 
-  --- PHASE 2 : MULTI-DRONES + WAREHOUSE ---
-
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  Étape 6 : Créer le monde Warehouse                               │
-  │  $ chmod +x 07_setup_warehouse.sh && ./07_setup_warehouse.sh       │
-  │  Crée un entrepôt 30m x 15m avec étagères et obstacles.           │
+  │  Étape 5 : Setup Warehouse                                        │
+  │  $ chmod +x 05_setup_warehouse.sh && ./05_setup_warehouse.sh       │
+  │  Crée un entrepôt 30m x 20m avec étagères, caisses, éclairage.   │
   │                                                                     │
-  │  Test : $ gz sim -v 4 -r worlds/warehouse.sdf                     │
+  │  Test : gz sim -v 4 -r ~/simulation_mc02/worlds/warehouse.sdf     │
   └─────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  Étape 7 : Lancer plusieurs drones (Terminal 1)                    │
+  │  Étape 6 : Lancer N drones dans le warehouse (Terminal 1)         │
   │  $ chmod +x 06_launch_multi_drones.sh                              │
   │  $ ./06_launch_multi_drones.sh 3      → 3 drones                  │
   │  $ ./06_launch_multi_drones.sh 5      → 5 drones                  │
   │                                                                     │
-  │  Les drones sont espacés de 3m dans le warehouse.                  │
-  │  Chaque drone a son propre port MAVLink (14550, 14551, 14552...)   │
+  │  Crée N copies du modèle iris avec ports uniques.                  │
+  │  Génère le monde SDF et lance Gazebo + N SITL.                     │
+  │  Drones espacés de 3m. Ctrl+C pour tout arrêter.                   │
+  │                                                                     │
+  │  Ports MAVLink :                                                    │
+  │    Drone 0 → tcp:127.0.0.1:5760                                   │
+  │    Drone 1 → tcp:127.0.0.1:5770                                   │
+  │    Drone 2 → tcp:127.0.0.1:5780                                   │
   └─────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  Étape 8 : Tracker les positions (Terminal 2)                      │
-  │  $ python3 08_track_positions.py --drones 3                        │
+  │  Étape 7 : Tracker les positions (Terminal 2)                      │
+  │  $ python3 07_track_positions.py --drones 3                        │
   │  Affiche les positions en temps réel + sauvegarde en CSV.          │
   │                                                                     │
   │  Options :                                                          │
-  │    --rate 2       → 2 Hz (mise à jour 2x par seconde)              │
+  │    --rate 4          → 4 Hz                                        │
   │    --output log.csv  → nom du fichier de sortie                    │
+  │    --duration 60     → arrêter après 60 secondes                   │
   └─────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  Étape 9 : Vol automatique multi-drones (Terminal 2)               │
-  │  $ python3 09_multi_drone_flight.py --drones 3                     │
-  │  Arm → Takeoff (altitudes différentes) → Hover 15s → Land         │
+  │  Étape 8 : Vol automatique multi-drones (Terminal 2)               │
+  │  $ python3 08_multi_drone_flight.py --drones 3                     │
+  │  GUIDED → Arm → Takeoff → Hover 15s → Land                        │
   │                                                                     │
   │  Options :                                                          │
-  │    --hover 30         → hover 30 secondes                          │
-  │    --base-alt 5       → altitude de base 5m                        │
-  │    --alt-step 2       → 2m d'écart entre drones                    │
+  │    --altitude 5      → altitude de base 5m                         │
+  │    --alt-step 2      → 2m d'écart entre drones                    │
+  │    --hover 30        → hover 30 secondes                           │
   └─────────────────────────────────────────────────────────────────────┘
 
-  --- PHASE 3+ : À VENIR ---
+==========================================================================
+                    PHASE 3+ : À VENIR
+==========================================================================
 
   - NS-3 / NS3-Sionna : simuler la communication (RSSI, latence)
+  - Interconnecter ArduPilot SITL avec NS-3
+  - Injecter les délais de communication réalistes
   - Intelligence partagée entre drones (RL / Active Inference)
 
 ==========================================================================
