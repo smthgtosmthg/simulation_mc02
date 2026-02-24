@@ -130,12 +130,74 @@ SYSTÈME VÉRIFIÉ :
   └─────────────────────────────────────────────────────────────────────┘
 
 ==========================================================================
-                    PHASE 3+ : À VENIR
+                    PHASE 3 : NS-3 + COMMUNICATION
 ==========================================================================
 
-  - NS-3 / NS3-Sionna : simuler la communication (RSSI, latence)
-  - Interconnecter ArduPilot SITL avec NS-3
-  - Injecter les délais de communication réalistes
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 9 : Installer NS-3.40                                      │
+  │  $ chmod +x 09_install_ns3.sh && ./09_install_ns3.sh               │
+  │  Télécharge, compile NS-3.40 (requis par NS3-Sionna).             │
+  │  Durée : ~10-15 min (première compilation)                         │
+  │                                                                     │
+  │  Test : cd ~/ns-allinone-3.40/ns-3.40 && ./ns3 run hello-simulator│
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 10 : Installer NS3-Sionna                                  │
+  │  $ chmod +x 10_install_ns3sionna.sh && ./10_install_ns3sionna.sh   │
+  │  Clone NS3-Sionna dans contrib/, recompile NS-3,                   │
+  │  installe le serveur Python Sionna (venv + Sionna 1.2.1).         │
+  │                                                                     │
+  │  Lancer le serveur Sionna :                                        │
+  │    cd ~/ns-allinone-3.40/ns-3.40/contrib/sionna/model/ns3sionna   │
+  │    source sionna-venv/bin/activate && ./run.sh                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 11 : Bridge ArduPilot ↔ NS-3 (Terminal 2)                  │
+  │  $ python3 11_ns3_bridge.py --drones 3                             │
+  │  Lit les positions des drones, calcule RSSI + latence,             │
+  │  écrit les métriques dans ~/simulation_mc02/comm_metrics.csv       │
+  │                                                                     │
+  │  Options :                                                          │
+  │    --no-ns3         → mode standalone (sans NS-3, Log-Distance)    │
+  │    --duration 60    → arrêter après 60 secondes                    │
+  │    --rate 4         → 4 Hz                                         │
+  │                                                                     │
+  │  Prérequis : 06_launch_multi_drones.sh tourne dans un terminal     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 12 : Démo complète (tout-en-un)                            │
+  │  $ chmod +x 12_demo_full.sh && ./12_demo_full.sh 3                │
+  │  Lance tout : Warehouse + N drones + Bridge + Vol auto             │
+  │                                                                     │
+  │  Modes :                                                            │
+  │    ./12_demo_full.sh 3             → 3 drones, standalone          │
+  │    ./12_demo_full.sh 3 ns3         → 3 drones, avec NS-3          │
+  │    ./12_demo_full.sh 5             → 5 drones, standalone          │
+  │                                                                     │
+  │  Sortie : ~/simulation_mc02/comm_metrics.csv                       │
+  │  (timestamp, positions, distance, RSSI dBm, latence ms)            │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Le scénario NS-3 (C++) est dans :
+    ~/simulation_mc02/ns3_scenarios/drone-wifi-scenario.cc
+
+  Il utilise :
+    - WiFi 802.11n Ad-Hoc (2.4 GHz)
+    - Log-Distance Path Loss (n=3.0, indoor warehouse)
+    - TxPower = 20 dBm
+    - UDP Echo entre drones (mesure latence réelle)
+    - FlowMonitor (statistiques de flux)
+
+==========================================================================
+                    PHASE 4+ : À VENIR
+==========================================================================
+
+  - Intégration complète NS3-Sionna (ray tracing 3D dans warehouse)
   - Intelligence partagée entre drones (RL / Active Inference)
+  - Navigation autonome collaborative (prise en compte RSSI/latence)
+  - Digital Twin complet
 
 ==========================================================================
