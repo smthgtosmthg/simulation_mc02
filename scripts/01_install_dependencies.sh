@@ -3,6 +3,7 @@
 # Script 1 : Installation des dépendances système
 # Cible    : Ubuntu 22.04 LTS
 # GPU      : NVIDIA RTX 2060 SUPER (drivers déjà installés)
+# Stack    : ArduPilot SITL + Gazebo Harmonic
 ###############################################################################
 set -e
 
@@ -23,18 +24,30 @@ sudo apt-get install -y \
     pkg-config \
     astyle \
     dmidecode \
-    libxml2-utils
+    libxml2-utils \
+    libffi-dev \
+    libxml2-dev \
+    libxslt1-dev
 
-# Python 3 et bibliothèques nécessaires pour PX4
+# Python 3 et bibliothèques nécessaires pour ArduPilot
 sudo apt-get install -y \
     python3-pip \
+    python3-dev \
     python3-jinja2 \
     python3-jsonschema \
     python3-numpy \
     python3-empy \
     python3-toml \
     python3-packaging \
-    python3-setuptools
+    python3-setuptools \
+    python3-lxml \
+    python3-matplotlib \
+    python3-serial \
+    python3-pexpect \
+    python3-future \
+    python3-tz \
+    python3-opencv \
+    python3-wxgtk4.0
 
 # GStreamer (pour le streaming vidéo des drones)
 sudo apt-get install -y \
@@ -46,7 +59,8 @@ sudo apt-get install -y \
     gstreamer1.0-plugins-ugly
 
 # Outils Python supplémentaires via pip
-pip3 install --user pyserial pymavlink mavproxy pyros-genmsg
+# IMPORTANT : numpy<2 est requis pour la compatibilité avec matplotlib système
+pip3 install --user "numpy<2" pymavlink MAVProxy pexpect dronekit dronekit-sitl
 
 echo ""
 echo "==> Dépendances système installées avec succès !"
