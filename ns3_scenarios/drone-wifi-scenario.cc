@@ -188,11 +188,18 @@ main(int argc, char *argv[])
     cmd.AddValue("updateInterval", "Position update interval (s)", g_updateInterval);
     cmd.Parse(argc, argv);
 
-    NS_LOG_INFO("=== Drone WiFi Scenario ===");
+    // *** REAL-TIME MODE ***
+    // Synchronise l'horloge NS-3 avec le temps réel (wall-clock).
+    // Sans ça, NS-3 simule 60s en ~1s CPU et ne lit jamais les
+    // positions mises à jour par le bridge.
+    GlobalValue::Bind("SimulatorImplementationType",
+                      StringValue("ns3::RealtimeSimulatorImpl"));
+
+    NS_LOG_INFO("=== Drone WiFi Scenario (REAL-TIME) ===");
     NS_LOG_INFO("Drones: " << g_nDrones);
     NS_LOG_INFO("Position file: " << g_posFile);
     NS_LOG_INFO("Output file: " << g_outFile);
-    NS_LOG_INFO("Sim time: " << g_simTime << "s");
+    NS_LOG_INFO("Sim time: " << g_simTime << "s (real-time)");
 
     // --- Create nodes ---
     g_droneNodes.Create(g_nDrones);
