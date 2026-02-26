@@ -185,6 +185,8 @@ def main():
                         help='Mode standalone : calcul RSSI/latence sans NS-3')
     parser.add_argument('--ns3-sim-time', type=int, default=60,
                         help='Durée de simulation NS-3 en secondes (défaut: 60)')
+    parser.add_argument('--use-sionna', action='store_true',
+                        help='Utiliser NS3-Sionna (ray-tracing) comme modèle de canal')
     args = parser.parse_args()
 
     n_drones = args.drones
@@ -195,6 +197,10 @@ def main():
     print("=" * 70)
     print(f"  BRIDGE ArduPilot ↔ NS-3 — {n_drones} drones")
     print(f"  Mode : {'NS-3' if use_ns3 else 'Standalone (Log-Distance Model)'}")
+    if use_ns3 and args.use_sionna:
+        print(f"  Canal : NS3-Sionna (ray-tracing)")
+    elif use_ns3:
+        print(f"  Canal : Log-Distance (indoor warehouse)")
     print("=" * 70)
     print()
 
@@ -239,6 +245,7 @@ def main():
                 subprocess.run([ns3_exe, "build"], cwd=NS3_DIR,
                              capture_output=True, timeout=120)
 
+            channel_model = 'sionna' if args.use_sionna else 'log-distance'
             cmd = [
                 ns3_exe, "run",
                 f"scratch/drone-wifi-scenario"
@@ -246,6 +253,7 @@ def main():
                 f" --posFile={POS_FILE}"
                 f" --outFile={NS3_OUTPUT}"
                 f" --simTime={args.ns3_sim_time}"
+                f" --channelModel={channel_model}"
             ]
             try:
                 ns3_process = subprocess.Popen(

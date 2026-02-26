@@ -503,6 +503,12 @@ def main():
                         help='Fréquence bridge en Hz (défaut: 2)')
     parser.add_argument('--ns3-sim-time', type=int, default=0,
                         help='Durée simulation NS-3 (0=auto, défaut: auto)')
+    parser.add_argument('--use-sionna', action='store_true',
+                        help='Utiliser NS3-Sionna (ray-tracing) comme modèle de canal')
+    parser.add_argument('--sionna-env', type=str, default='simple_room/simple_room.xml',
+                        help='Scène Sionna XML (défaut: simple_room/simple_room.xml)')
+    parser.add_argument('--sionna-url', type=str, default='tcp://localhost:5555',
+                        help='URL du serveur Sionna ZMQ (défaut: tcp://localhost:5555)')
     args = parser.parse_args()
 
     n_drones = args.drones
@@ -517,7 +523,9 @@ def main():
     print(f"  VOL + BRIDGE COMBINÉ — {n_drones} DRONES")
     print(f"  Altitude : {args.altitude}m + {args.alt_step}m/drone")
     print(f"  Hover    : {args.hover}s")
+    channel_model = 'sionna' if args.use_sionna else 'log-distance'
     print(f"  NS-3     : real-time, simTime={args.ns3_sim_time}s @ {args.rate} Hz")
+    print(f"  Canal    : {channel_model}{'  (NS3-Sionna ray-tracing)' if args.use_sionna else '  (Log-Distance indoor)'}")
     print("=" * 70)
     print()
 
@@ -580,15 +588,25 @@ def main():
     write_positions_csv([{'x': 0, 'y': i * 3.0, 'z': 0.19} for i in range(n_drones)])
 
     # Lancer NS-3 en real-time
-    cmd = [
-        ns3_exe, "run",
+    cmd_args = (
         f"scratch/drone-wifi-scenario"
         f" --nDrones={n_drones}"
         f" --posFile={POS_FILE}"
         f" --outFile={NS3_OUTPUT}"
         f" --simTime={args.ns3_sim_time}"
         f" --updateInterval=0.5"
-    ]
+        f" --channelModel={channel_model}"
+    )
+    if args.use_sionna:
+        cmd_args += f" --sionnaEnv={args.sionna_env}"
+        cmd_args += f" --sionnaUrl={args.sionna_url}"
+    cmd = [ns3_exe, "run", cmd_args]
+    if args.use_sionna:
+        print(f"\n  [ATTENTION] Mode Sionna activé.")
+        print(f"  Vérifie que le serveur Sionna tourne :")
+        print(f"    cd ~/ns-allinone-3.40/ns-3.40/contrib/sionna/model/ns3sionna")
+        print(f"    source sionna-venv/bin/activate && python3 run_server.py\n")
+
     try:
         ns3_process = subprocess.Popen(
             cmd, cwd=NS3_DIR,
