@@ -13,7 +13,6 @@ en parallèle :
 Usage :
     python3 12_flight_and_bridge.py --drones 3
     python3 12_flight_and_bridge.py --drones 3 --altitude 5 --hover 30
-    python3 12_flight_and_bridge.py --drones 3 --use-sionna
     python3 12_flight_and_bridge.py --drones 3 --alt-step 2 --hover 60
 
 Prérequis : 06_launch_multi_drones.sh doit tourner dans un autre terminal.
@@ -27,7 +26,6 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime
 
 try:
     from pymavlink import mavutil
@@ -41,18 +39,8 @@ except ImportError:
 # Constantes ArduCopter
 # ============================================================
 
-MODE_STABILIZE = 0
-MODE_ALT_HOLD  = 2
-MODE_AUTO      = 3
 MODE_GUIDED    = 4
-MODE_LOITER    = 5
-MODE_RTL       = 6
 MODE_LAND      = 9
-
-MODE_NAMES = {
-    0: "STABILIZE", 2: "ALT_HOLD", 3: "AUTO", 4: "GUIDED",
-    5: "LOITER", 6: "RTL", 9: "LAND"
-}
 
 
 # ============================================================
@@ -64,7 +52,6 @@ NS3_OUTPUT  = "/tmp/ns3_output.csv"
 WORKSPACE   = os.path.expanduser("~/simulation_mc02")
 UNIFIED_LOG = os.path.join(WORKSPACE, "comm_metrics.csv")
 NS3_DIR     = os.path.expanduser("~/ns-allinone-3.40/ns-3.40")
-NS3_SCENARIO = "scratch/drone-wifi-scenario"
 
 
 # ============================================================
@@ -97,7 +84,7 @@ def connect_drone(instance, timeout=30):
     try:
         conn = mavutil.mavlink_connection(addr, source_system=255)
         conn.wait_heartbeat(timeout=timeout)
-        print(f"OK (sysid={conn.target_system})")
+        print("OK")
         return conn
     except Exception as e:
         print(f"ERREUR : {e}")
@@ -224,101 +211,87 @@ def flight_thread(connections, locks, state, args):
 
     try:
         # --- EKF wait ---
-        print(f"\n[FLIGHT 1/5] Attente calibration EKF ({args.ekf_wait}s)...")
+        print(f"\n[1/5] Calibration EKF ({args.ekf_wait}s)...", end=" ", flush=True)
         for s in range(args.ekf_wait, 0, -1):
             if not state.running:
                 return
-            sys.stdout.write(f"\r  [FLIGHT] {s}s restantes...")
-            sys.stdout.flush()
             time.sleep(1)
-        print("\r  [FLIGHT] => EKF prêt !              \n")
+        print("OK")
 
         # --- GUIDED mode ---
-        print("[FLIGHT 2/5] Passage en mode GUIDED...")
+        print("\n[2/5] Mode GUIDED...")
         for i, conn in enumerate(connections):
             if not state.running:
                 return
             success = set_mode(conn, locks[i], MODE_GUIDED)
-            status = "GUIDED" if success else "TIMEOUT (continue)"
-            print(f"  [FLIGHT] Drone {i} : {status}")
-        print()
+            print(f"  Drone {i} : {'GUIDED' if success else 'TIMEOUT'}")
 
         # --- ARM ---
-        print("[FLIGHT 3/5] Armement des moteurs...")
+        print("\n[3/5] Armement...")
         for i, conn in enumerate(connections):
             if not state.running:
                 return
             success = arm_drone(conn, locks[i], timeout=15)
-            status = "ARMED" if success else "ECHEC (retry dans 5s)"
-            print(f"  [FLIGHT] Drone {i} : {status}")
             if not success:
                 time.sleep(5)
                 success = arm_drone(conn, locks[i], timeout=15)
-                print(f"  [FLIGHT] Drone {i} (retry) : {'ARMED' if success else 'ECHEC'}")
-        print()
+            print(f"  Drone {i} : {'ARMED' if success else 'ECHEC'}")
 
         # --- TAKEOFF ---
-        print("[FLIGHT 4/5] Décollage...")
-        target_alts = []
+        target_alts = [args.altitude + i * args.alt_step for i in range(n)]
+        alts_str = ', '.join(f"{a}m" for a in target_alts)
+        print(f"\n[4/5] Décollage → [{alts_str}]...")
         for i, conn in enumerate(connections):
             if not state.running:
                 return
-            alt = args.altitude + i * args.alt_step
-            target_alts.append(alt)
-            takeoff(conn, locks[i], alt)
-            print(f"  [FLIGHT] Drone {i} : takeoff → {alt}m")
+            takeoff(conn, locks[i], target_alts[i])
             time.sleep(2)
 
-        print("\n  [FLIGHT] Attente des altitudes cibles...")
+        print("  Attente altitudes cibles...")
         for i, conn in enumerate(connections):
             if not state.running:
                 return
             reached = wait_altitude(conn, locks[i], target_alts[i], tolerance=1.0, timeout=30)
             current = get_altitude(conn, locks[i])
             current_str = f"{current:.1f}m" if current else "N/A"
-            if reached:
-                print(f"  [FLIGHT] Drone {i} : {current_str} / {target_alts[i]}m — OK")
-            else:
-                print(f"  [FLIGHT] Drone {i} : {current_str} / {target_alts[i]}m — timeout (continue)")
+            print(f"  Drone {i} : {current_str} / {target_alts[i]}m {'OK' if reached else '(timeout)'}")
 
         # Signal : drones en l'air
         state.drones_airborne.set()
-        print(f"\n[FLIGHT 5/5] HOVER pendant {args.hover}s...")
+        print(f"\n[5/5] Hover {args.hover}s...")
 
-        # --- HOVER ---
+        # --- HOVER (affichage toutes les 5s) ---
         for s in range(args.hover):
             if not state.running:
                 return
             time.sleep(1)
-            line = f"  [FLIGHT] t={s+1:3d}s |"
-            for i, conn in enumerate(connections):
-                alt = get_altitude(conn, locks[i], timeout=1)
-                alt_str = f"{alt:5.1f}m" if alt else " N/A "
-                line += f" D{i}={alt_str}"
-            print(line)
+            if (s + 1) % 5 == 0 or s + 1 == args.hover:
+                line = f"  t={s+1:3d}s |"
+                for i, conn in enumerate(connections):
+                    alt = get_altitude(conn, locks[i], timeout=1)
+                    alt_str = f"{alt:5.1f}m" if alt else " N/A "
+                    line += f" D{i}={alt_str}"
+                print(line)
 
         # --- LAND ---
-        print("\n[FLIGHT] Atterrissage...")
+        print("\n[LAND] Atterrissage...")
         for i, conn in enumerate(connections):
-            success = set_mode(conn, locks[i], MODE_LAND)
-            status = "LAND" if success else "commande envoyée"
-            print(f"  [FLIGHT] Drone {i} : {status}")
+            set_mode(conn, locks[i], MODE_LAND)
+            print(f"  Drone {i} : LAND")
 
-        print("  [FLIGHT] Attente atterrissage (30s)...")
-        for s in range(30, 0, -5):
+        print("  Descente en cours...")
+        for s in range(30, 0, -10):
             if not state.running:
                 return
-            time.sleep(5)
+            time.sleep(10)
             alts = []
             for i, conn in enumerate(connections):
                 alt = get_altitude(conn, locks[i])
                 alts.append(f"{alt:.1f}m" if alt else "N/A")
-            print(f"  [FLIGHT] {s-5:2d}s | Altitudes : {', '.join(alts)}")
+            print(f"  Altitudes : {', '.join(alts)}")
 
-        print("\n  [FLIGHT] VOL TERMINÉ !")
-        print(f"    Drones   : {n}")
-        print(f"    Altitudes: {', '.join(f'{a}m' for a in target_alts)}")
-        print(f"    Hover    : {args.hover}s")
+        print("\n  Vol terminé !")
+        print(f"  Drones : {n} | Altitudes : [{alts_str}] | Hover : {args.hover}s")
 
     except Exception as e:
         print(f"\n  [FLIGHT] ERREUR: {e}")
@@ -356,9 +329,7 @@ def bridge_thread(connections, locks, state, args, ns3_process):
     start_time = time.time()
     sample_count = 0
 
-    print(f"\n[BRIDGE] Démarrage — log: {UNIFIED_LOG}")
-    print(f"[BRIDGE] Mode : NS-3 real-time")
-    print(f"[BRIDGE] Fréquence : {args.rate} Hz\n")
+
 
     try:
         while state.running and not state.flight_done.is_set():
@@ -434,8 +405,7 @@ def bridge_thread(connections, locks, state, args, ns3_process):
             except Exception:
                 ns3_process.kill()
 
-        print(f"\n[BRIDGE] Arrêté — {sample_count} échantillons, durée {time.time() - start_time:.1f}s")
-        print(f"[BRIDGE] Log unifié : {UNIFIED_LOG}")
+
 
 
 # ============================================================
@@ -462,8 +432,6 @@ def main():
                         help='Fréquence bridge en Hz (défaut: 2)')
     parser.add_argument('--ns3-sim-time', type=int, default=0,
                         help='Durée simulation NS-3 (0=auto, défaut: auto)')
-    parser.add_argument('--use-sionna', action='store_true',
-                        help='Utiliser NS3-Sionna (ray-tracing) comme modèle de canal')
     parser.add_argument('--sionna-env', type=str, default='simple_room/simple_room.xml',
                         help='Scène Sionna XML (défaut: simple_room/simple_room.xml)')
     parser.add_argument('--sionna-url', type=str, default='tcp://localhost:5555',
@@ -482,9 +450,8 @@ def main():
     print(f"  VOL + BRIDGE COMBINÉ — {n_drones} DRONES")
     print(f"  Altitude : {args.altitude}m + {args.alt_step}m/drone")
     print(f"  Hover    : {args.hover}s")
-    channel_model = 'sionna' if args.use_sionna else 'log-distance'
     print(f"  NS-3     : real-time, simTime={args.ns3_sim_time}s @ {args.rate} Hz")
-    print(f"  Canal    : {channel_model}{'  (NS3-Sionna ray-tracing)' if args.use_sionna else '  (Log-Distance indoor)'}")
+    print(f"  Canal    : sionna  (NS3-Sionna ray-tracing)")
     print("=" * 70)
     print()
 
@@ -525,19 +492,17 @@ def main():
     scenario_dst = os.path.join(NS3_DIR, "scratch", "drone-wifi-scenario.cc")
     os.makedirs(os.path.dirname(scenario_dst), exist_ok=True)
     shutil.copy2(scenario_src, scenario_dst)
-    print(f"  Scénario copié dans scratch/")
-
     # Build NS-3
-    print(f"  Build NS-3...")
+    print(f"  Build NS-3...", end=" ", flush=True)
     build_result = subprocess.run(
         [ns3_exe, "build"], cwd=NS3_DIR,
         capture_output=True, text=True, timeout=180
     )
     if build_result.returncode != 0:
-        print(f"  ERREUR build NS-3:")
+        print(f"ERREUR")
         print(build_result.stderr[-500:] if build_result.stderr else "(pas de sortie)")
         sys.exit(1)
-    print(f"  Build OK")
+    print(f"OK")
 
     # Nettoyer l'ancien output NS-3
     if os.path.exists(NS3_OUTPUT):
@@ -554,24 +519,17 @@ def main():
         f" --outFile={NS3_OUTPUT}"
         f" --simTime={args.ns3_sim_time}"
         f" --updateInterval=0.5"
-        f" --channelModel={channel_model}"
+        f" --channelModel=sionna"
+        f" --sionnaEnv={args.sionna_env}"
+        f" --sionnaUrl={args.sionna_url}"
     )
-    if args.use_sionna:
-        cmd_args += f" --sionnaEnv={args.sionna_env}"
-        cmd_args += f" --sionnaUrl={args.sionna_url}"
     cmd = [ns3_exe, "run", cmd_args]
-    if args.use_sionna:
-        print(f"\n  [ATTENTION] Mode Sionna activé.")
-        print(f"  Vérifie que le serveur Sionna tourne :")
-        print(f"    cd ~/ns-allinone-3.40/ns-3.40/contrib/sionna/model/ns3sionna")
-        print(f"    source sionna-venv/bin/activate && python3 run_server.py\n")
 
     try:
         ns3_process = subprocess.Popen(
             cmd, cwd=NS3_DIR,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        print(f"  NS-3 lancé en real-time (PID={ns3_process.pid}, simTime={args.ns3_sim_time}s)")
         # Attendre un peu que NS-3 démarre
         time.sleep(2)
         if ns3_process.poll() is not None:
@@ -579,7 +537,7 @@ def main():
             print(f"  ERREUR: NS-3 s'est arrêté immédiatement")
             print(f"  stderr: {stderr[-500:]}")
             sys.exit(1)
-        print(f"  NS-3 actif ✓")
+        print(f"  NS-3 + Sionna actif ✓")
     except Exception as e:
         print(f"  ERREUR lancement NS-3: {e}")
         sys.exit(1)
@@ -612,10 +570,7 @@ def main():
         daemon=True
     )
 
-    print("=" * 70)
-    print("  Lancement des threads FLIGHT + BRIDGE en parallèle...")
-    print("=" * 70)
-    print()
+
 
     t_bridge.start()
     t_flight.start()
