@@ -13,7 +13,7 @@ en parallèle :
 Usage :
     python3 12_flight_and_bridge.py --drones 3
     python3 12_flight_and_bridge.py --drones 3 --altitude 5 --hover 30
-    python3 12_flight_and_bridge.py --drones 3 --no-ns3
+    python3 12_flight_and_bridge.py --drones 3 --use-sionna
     python3 12_flight_and_bridge.py --drones 3 --alt-step 2 --hover 60
 
 Prérequis : 06_launch_multi_drones.sh doit tourner dans un autre terminal.
@@ -21,7 +21,6 @@ Prérequis : 06_launch_multi_drones.sh doit tourner dans un autre terminal.
 
 import argparse
 import csv
-import math
 import os
 import signal
 import subprocess
@@ -85,28 +84,6 @@ class SharedState:
         self.drones_airborne = threading.Event()
         # Le flight indique quand le vol est terminé
         self.flight_done = threading.Event()
-
-
-# ============================================================
-# Modèle de propagation standalone
-# ============================================================
-
-def compute_rssi_standalone(pos_i, pos_j, tx_power_dbm=20.0,
-                            path_loss_exp=3.0, ref_loss_db=40.0):
-    dx = pos_i['x'] - pos_j['x']
-    dy = pos_i['y'] - pos_j['y']
-    dz = pos_i['z'] - pos_j['z']
-    distance = math.sqrt(dx*dx + dy*dy + dz*dz)
-    if distance < 0.01:
-        distance = 0.01
-    path_loss = ref_loss_db + 10.0 * path_loss_exp * math.log10(distance)
-    rssi = tx_power_dbm - path_loss
-    return rssi, distance
-
-
-def compute_latency_standalone(distance, mac_delay_ms=2.0):
-    propagation_ms = (distance / 3e8) * 1000.0
-    return propagation_ms + mac_delay_ms
 
 
 # ============================================================
@@ -410,15 +387,14 @@ def bridge_thread(connections, locks, state, args, ns3_process):
             # --- Lire les dernières données NS-3 ---
             ns3_data = read_ns3_output()
 
-            # --- Métriques par paire (depuis NS-3) ---
-            bridge_line = f"  [BRIDGE] {elapsed:6.1f}s |"
+            # --- Métriques par paire (depuis NS-3 / Sionna uniquement) ---
             for i in range(n):
                 for j in range(i+1, n):
                     if positions[i] and positions[j]:
                         # Chercher la dernière entrée NS-3 pour cette paire
                         rssi = None
                         latency = None
-                        dist_ns3 = None
+                        dist = None
                         for d in reversed(ns3_data):
                             try:
                                 di = int(d.get('drone_i', -1))
@@ -426,38 +402,21 @@ def bridge_thread(connections, locks, state, args, ns3_process):
                                 if di == i and dj == j:
                                     rssi = float(d['rssi_dbm'])
                                     latency = float(d['latency_ms'])
-                                    dist_ns3 = float(d['distance_m'])
+                                    dist = float(d['distance_m'])
                                     break
                             except (ValueError, KeyError):
                                 continue
 
-                        if dist_ns3 is not None:
-                            dist = dist_ns3
+                        if dist is not None and rssi is not None and latency is not None:
+                            row.extend([f"{dist:.3f}", f"{rssi:.1f}", f"{latency:.3f}"])
                         else:
-                            # Distance calculée en attendant NS-3
-                            _, dist = compute_rssi_standalone(positions[i], positions[j])
-
-                        if rssi is None or latency is None:
-                            # NS-3 pas encore prêt, fallback temporaire
-                            rssi_fb, dist = compute_rssi_standalone(positions[i], positions[j])
-                            rssi = rssi if rssi is not None else rssi_fb
-                            latency = latency if latency is not None else compute_latency_standalone(dist)
-                            src = "fb"
-                        else:
-                            src = "ns3"
-
-                        row.extend([f"{dist:.3f}", f"{rssi:.1f}", f"{latency:.3f}"])
-                        bridge_line += f" {i}↔{j}: {rssi:5.1f}dBm {latency:5.2f}ms({src}) |"
+                            # NS-3/Sionna pas encore prêt, on écrit NaN
+                            row.extend(['NaN', 'NaN', 'NaN'])
                     else:
                         row.extend(['NaN', 'NaN', 'NaN'])
-                        bridge_line += f" {i}↔{j}:   N/A   |"
 
             writer.writerow(row)
             sample_count += 1
-
-            # Afficher toutes les 5 secondes pour ne pas trop polluer la console
-            if sample_count % max(1, int(5 * args.rate)) == 0:
-                print(bridge_line)
 
             if sample_count % 10 == 0:
                 csv_file.flush()
