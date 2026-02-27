@@ -192,12 +192,82 @@ SYSTÈME VÉRIFIÉ :
     - FlowMonitor (statistiques de flux)
 
 ==========================================================================
-                    PHASE 4+ : À VENIR
+                    PHASE 4 : 5G NR (5G-LENA)
 ==========================================================================
 
-  - Intégration complète NS3-Sionna (ray tracing 3D dans warehouse)
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 13 : Installer 5G-LENA (module NR)                         │
+  │  $ chmod +x 13_install_5g_lena.sh && ./13_install_5g_lena.sh       │
+  │  Clone 5G-LENA v2.6.y dans contrib/nr/, recompile NS-3.           │
+  │  Durée : ~15-20 min (compilation avec module NR)                   │
+  │                                                                     │
+  │  Test : cd ~/ns-allinone-3.40/ns-3.40 && ./ns3 run cttc-nr-demo   │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 14 : Bridge ArduPilot ↔ NS-3 5G NR (Terminal 2)            │
+  │  $ python3 14_ns3_5g_bridge.py --drones 3                          │
+  │  Comme le script 11, mais avec un réseau 5G NR :                   │
+  │    - 1 gNB au centre de l'entrepôt                                 │
+  │    - N drones comme UEs                                            │
+  │    - Métriques : RSRP, latence, distance à la gNB                 │
+  │                                                                     │
+  │  Options :                                                          │
+  │    --no-ns3              → mode standalone (sans NS-3)             │
+  │    --frequency 28e9      → FR2 mmWave                              │
+  │    --numerology 3        → numérologie FR2                         │
+  │    --scenario InH-OfficeOpen → scénario indoor ouvert              │
+  │                                                                     │
+  │  Sortie : ~/simulation_mc02/comm_metrics_5g.csv                    │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Étape 15 : Vol + Bridge 5G NR (tout-en-un)                       │
+  │  $ python3 15_flight_and_5g_bridge.py --drones 3                   │
+  │  Combine vol automatique + bridge 5G NR en un seul script.         │
+  │                                                                     │
+  │  Exemples :                                                         │
+  │    python3 15_flight_and_5g_bridge.py --drones 3                   │
+  │    python3 15_flight_and_5g_bridge.py --drones 3 --frequency 28e9  │
+  │    python3 15_flight_and_5g_bridge.py --drones 5 --hover 60        │
+  │                                                                     │
+  │  Sortie : ~/simulation_mc02/comm_metrics_5g.csv                    │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Le scénario NS-3 5G (C++) est dans :
+    ~/simulation_mc02/ns3_scenarios/drone-5g-scenario.cc
+
+  Il utilise :
+    - 5G NR via 5G-LENA (gNB + UEs)
+    - FR1 : 3.5 GHz, 20 MHz, μ=1 (30 kHz SCS)  ← par défaut
+    - FR2 : 28 GHz, 100 MHz, μ=3 (120 kHz SCS)  ← option mmWave
+    - Modèle de canal 3GPP TR 38.901 InH-Office
+    - Beamforming idéal (DirectPath)
+    - EPC (réseau cœur) pour routage inter-drones
+    - FlowMonitor (latence réelle)
+
+  Documentation 5G : docs/documentation_drone_5g_scenario.md
+
+  Comparaison WiFi vs 5G :
+    ┌──────────────┬──────────────────┬──────────────────────┐
+    │              │ WiFi 802.11n     │ 5G NR (FR1)          │
+    ├──────────────┼──────────────────┼──────────────────────┤
+    │ Topologie    │ Ad-Hoc (mesh)    │ Étoile (gNB)         │
+    │ Fréquence    │ 2.4 GHz          │ 3.5 GHz              │
+    │ Métrique     │ RSSI             │ RSRP                 │
+    │ Latence      │ ~2-5 ms          │ ~1-3 ms              │
+    │ Scénario     │ drone-wifi-*.cc  │ drone-5g-*.cc        │
+    │ Bridge       │ 11 / 12          │ 14 / 15              │
+    │ Sortie CSV   │ comm_metrics.csv │ comm_metrics_5g.csv  │
+    └──────────────┴──────────────────┴──────────────────────┘
+
+==========================================================================
+                    PHASE 5+ : À VENIR
+==========================================================================
+
+  - Intégration Sionna RT (ray-tracing GPU) avec 5G-LENA
   - Intelligence partagée entre drones (RL / Active Inference)
-  - Navigation autonome collaborative (prise en compte RSSI/latence)
+  - Navigation autonome collaborative (prise en compte RSRP/latence)
   - Digital Twin complet
 
 ==========================================================================
