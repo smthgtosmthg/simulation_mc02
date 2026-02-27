@@ -450,8 +450,10 @@ main(int argc, char *argv[])
                     << "MHz, fft=" << fftSize
                     << ", scs=" << subcarrierSpacing << "Hz");
 
+        // Pass min coherence time = 500ms so Sionna recomputes CSI
+        // frequently even when drones use ConstantPositionMobility.
         g_sionnaHelper->Configure(centerFreq, (int)channelWidth,
-                                   fftSize, subcarrierSpacing);
+                                   fftSize, subcarrierSpacing, 500);
         g_sionnaHelper->Start();
         NS_LOG_INFO("Sionna démarré et connecté au serveur !");
     }
@@ -475,9 +477,12 @@ main(int argc, char *argv[])
         serverApp.Stop(Seconds(g_simTime));
 
         // Client UDP Echo sur le drone source
+        // Interval must be < updateInterval (0.5s) to ensure FlowMonitor
+        // has fresh packets at every measurement tick. 0.2s → ~2-3 packets
+        // per update window, eliminating fallback to the 2.0ms constant.
         UdpEchoClientHelper echoClient(dstAddr, port + j);
         echoClient.SetAttribute("MaxPackets", UintegerValue(999999));
-        echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
+        echoClient.SetAttribute("Interval", TimeValue(Seconds(0.1)));
         echoClient.SetAttribute("PacketSize", UintegerValue(256));
 
         ApplicationContainer clientApp = echoClient.Install(srcNode);
