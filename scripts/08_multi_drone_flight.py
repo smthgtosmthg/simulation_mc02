@@ -164,6 +164,25 @@ def request_data_streams(conn, rate_hz=4):
     )
 
 
+POS_CSV = "/tmp/drone_positions.csv"
+
+
+def write_positions_csv(connections):
+    """Écrit les positions actuelles de tous les drones dans le CSV.
+    Retourne une string résumée des positions pour l'affichage."""
+    parts = []
+    with open(POS_CSV, "w") as pf:
+        for i, conn in enumerate(connections):
+            msg = conn.recv_match(type='LOCAL_POSITION_NED', blocking=True, timeout=1)
+            if msg:
+                x, y, z = msg.x, msg.y, -msg.z
+                pf.write(f"{i},{x:.4f},{y:.4f},{z:.4f}\n")
+                parts.append(f"D{i}({x:7.2f},{y:7.2f},{z:5.2f}m)")
+            else:
+                parts.append(f"D{i}(  N/A  )")
+    return "  ".join(parts)
+
+
 # ============================================================
 # Programme principal
 # ============================================================
@@ -191,6 +210,7 @@ def main():
     print(f"  VOL AUTOMATIQUE — {n_drones} DRONES")
     print(f"  Altitude : {args.altitude}m (base) + {args.alt_step}m/drone")
     print(f"  Hover    : {args.hover}s")
+    print(f"  Positions: {POS_CSV} (continu)")
     print("=" * 65)
     print()
 
@@ -259,30 +279,35 @@ def main():
         time.sleep(2)  # Délai entre décollages
 
     print()
-    print("  Attente des altitudes cibles...")
-    for i, conn in enumerate(connections):
-        reached = wait_altitude(conn, target_alts[i], tolerance=1.0, timeout=30)
-        current = get_altitude(conn)
-        current_str = f"{current:.1f}m" if current else "N/A"
-        if reached:
-            print(f"  Drone {i} : {current_str} / {target_alts[i]}m — OK")
-        else:
-            print(f"  Drone {i} : {current_str} / {target_alts[i]}m — timeout (continue)")
+    print(f"  Attente des altitudes cibles... (positions → {POS_CSV})")
+    t_takeoff = 0
+    all_reached = [False] * n_drones
+    while not all(all_reached):
+        time.sleep(1)
+        t_takeoff += 1
+        pos_line = write_positions_csv(connections)
+        for i, conn in enumerate(connections):
+            if not all_reached[i]:
+                alt = get_altitude(conn)
+                if alt is not None and abs(alt - target_alts[i]) < 1.0:
+                    all_reached[i] = True
+        done = sum(all_reached)
+        print(f"  ↗ t={t_takeoff:3d}s | {done}/{n_drones} at target | {pos_line}")
+        if t_takeoff >= 60:  # safety timeout
+            print("  ⚠ Timeout décollage (60s), on continue")
+            break
     print()
 
     # ============================================================
     # Hover avec affichage des positions
     # ============================================================
-    print(f"HOVER pendant {args.hover}s — Positions :")
+    print(f"HOVER pendant {args.hover}s :")
     print("-" * 65)
 
     for s in range(args.hover):
         time.sleep(1)
-        line = f"  t={s+1:3d}s |"
-        for i, conn in enumerate(connections):
-            pos_str = get_position_str(conn)
-            line += f" D{i}{pos_str}"
-        print(line)
+        pos_line = write_positions_csv(connections)
+        print(f"  ● t={s+1:3d}s | {pos_line}")
     print()
 
     # ============================================================
@@ -296,13 +321,21 @@ def main():
     print()
 
     print("  Attente de l'atterrissage (30s)...")
-    for s in range(30, 0, -5):
-        time.sleep(5)
-        alts = []
+    for s in range(30):
+        time.sleep(1)
+        pos_line = write_positions_csv(connections)
+        if s % 5 == 4:  # afficher toutes les 5s
+            print(f"  ↘ t={s+1:3d}s | {pos_line}")
+        # Vérifier si tous posés (alt < 0.3m)
+        all_landed = True
         for conn in connections:
             alt = get_altitude(conn)
-            alts.append(f"{alt:.1f}m" if alt else "N/A")
-        print(f"  {s-5:2d}s | Altitudes : {', '.join(alts)}")
+            if alt is None or alt > 0.3:
+                all_landed = False
+        if all_landed:
+            write_positions_csv(connections)
+            print(f"  ✓ Tous les drones posés !")
+            break
 
     print()
     print("=" * 65)

@@ -76,6 +76,10 @@ sleep 2
 export GZ_SIM_SYSTEM_PLUGIN_PATH=$PLUGIN_DIR/build:$GZ_SIM_SYSTEM_PLUGIN_PATH
 export GZ_SIM_RESOURCE_PATH=$MODELS_DIR:$PLUGIN_DIR/models:$PLUGIN_DIR/worlds:$WORKSPACE/worlds:$GZ_SIM_RESOURCE_PATH
 
+# Forcer le driver EGL NVIDIA pour éviter les warnings libEGL "Permission denied"
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+
 # ============================================================
 # Créer les copies du modèle iris (ports uniques)
 # ============================================================

@@ -1,0 +1,439 @@
+#!/bin/bash
+###############################################################################
+# Script 5 : Création de l'environnement Warehouse pour Gazebo Harmonic
+#
+# Crée un entrepôt 30m x 20m avec :
+#   - Murs + plafond (6m de haut)
+#   - Porte d'entrée (mur sud)
+#   - 4 étagères/racks
+#   - Caisses au sol
+#   - Éclairage intérieur (4 points lumineux)
+#
+# Test : gz sim -v 4 -r ~/simulation_mc02/worlds/warehouse.sdf
+###############################################################################
+set -e
+
+WORKSPACE="$HOME/simulation_mc02"
+WORLDS_DIR="$WORKSPACE/worlds"
+MODELS_DIR="$WORKSPACE/models"
+
+echo "=============================================="
+echo " [5] Setup Warehouse — Environnement 3D"
+echo "=============================================="
+
+# --- Créer les répertoires ---
+mkdir -p "$WORLDS_DIR"
+mkdir -p "$MODELS_DIR"
+
+echo "Génération du monde warehouse.sdf..."
+
+cat > "$WORLDS_DIR/warehouse.sdf" << 'SDFEOF'
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="warehouse">
+
+    <!-- ======== Plugins système (Gazebo Harmonic) ======== -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <!-- ======== Physique ======== -->
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- ======== Scène ======== -->
+    <scene>
+      <ambient>0.3 0.3 0.3 1</ambient>
+      <background>0.6 0.7 0.8 1</background>
+    </scene>
+
+    <!-- ======== Soleil (atténué pour intérieur) ======== -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 20 0 0 0</pose>
+      <diffuse>0.5 0.5 0.5 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+
+    <!-- ======== Éclairage intérieur (4 points) ======== -->
+    <light type="point" name="light_nw">
+      <pose>-7 5 5.5 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>20</range>
+        <constant>0.3</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+    <light type="point" name="light_ne">
+      <pose>7 5 5.5 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>20</range>
+        <constant>0.3</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+    <light type="point" name="light_sw">
+      <pose>-7 -5 5.5 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>20</range>
+        <constant>0.3</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+    <light type="point" name="light_se">
+      <pose>7 -5 5.5 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>20</range>
+        <constant>0.3</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- ============================================================ -->
+    <!--                         SOL                                  -->
+    <!-- ============================================================ -->
+    <model name="floor">
+      <static>true</static>
+      <pose>0 0 -0.05 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>30 20 0.1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>30 20 0.1</size></box></geometry>
+          <material>
+            <ambient>0.35 0.35 0.35 1</ambient>
+            <diffuse>0.45 0.45 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ -->
+    <!--                         MURS                                 -->
+    <!-- ============================================================ -->
+
+    <!-- Mur Nord (plein) -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 10.1 3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>30 0.2 6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>30 0.2 6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Mur Sud — segment gauche (porte de 8m au centre) -->
+    <model name="wall_south_left">
+      <static>true</static>
+      <pose>-10.5 -10.1 3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>9 0.2 6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>9 0.2 6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Mur Sud — segment droit -->
+    <model name="wall_south_right">
+      <static>true</static>
+      <pose>10.5 -10.1 3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>9 0.2 6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>9 0.2 6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Mur Est -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>15.1 0 3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 20.4 6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 20.4 6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Mur Ouest -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-15.1 0 3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 20.4 6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 20.4 6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ -->
+    <!--                        PLAFOND                               -->
+    <!-- ============================================================ -->
+    <model name="ceiling">
+      <static>true</static>
+      <pose>0 0 6.05 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>30 20 0.1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>30 20 0.1</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ -->
+    <!--                   ÉTAGÈRES / RACKS                           -->
+    <!--  4 racks (6m x 1.2m x 3m) — hauteur max 3m                  -->
+    <!--  Zone de vol libre au-dessus (3m → 6m)                       -->
+    <!-- ============================================================ -->
+
+    <!-- Rack Nord-Ouest -->
+    <model name="shelf_nw">
+      <static>true</static>
+      <pose>-7 5 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.15 1</ambient>
+            <diffuse>0.65 0.45 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Rack Nord-Est -->
+    <model name="shelf_ne">
+      <static>true</static>
+      <pose>7 5 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.15 1</ambient>
+            <diffuse>0.65 0.45 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Rack Sud-Ouest -->
+    <model name="shelf_sw">
+      <static>true</static>
+      <pose>-7 -5 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.15 1</ambient>
+            <diffuse>0.65 0.45 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Rack Sud-Est -->
+    <model name="shelf_se">
+      <static>true</static>
+      <pose>7 -5 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6 1.2 3</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.15 1</ambient>
+            <diffuse>0.65 0.45 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ -->
+    <!--                   CAISSES / PALETTES                         -->
+    <!-- ============================================================ -->
+
+    <model name="crate_1">
+      <static>true</static>
+      <pose>-12 -7 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1 1 1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 1</size></box></geometry>
+          <material>
+            <ambient>0.6 0.5 0.2 1</ambient>
+            <diffuse>0.7 0.6 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="crate_2">
+      <static>true</static>
+      <pose>12 7 0.4 0 0 0.3</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.2 0.8 0.8</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.2 0.8 0.8</size></box></geometry>
+          <material>
+            <ambient>0.6 0.5 0.2 1</ambient>
+            <diffuse>0.7 0.6 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="crate_3">
+      <static>true</static>
+      <pose>-12 7 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1 1 1.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 1.5</size></box></geometry>
+          <material>
+            <ambient>0.5 0.5 0.55 1</ambient>
+            <diffuse>0.6 0.6 0.65 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="pallet_stack">
+      <static>true</static>
+      <pose>11 -7 0.6 0 0 0.1</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.2 1.2 1.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.2 1.2 1.2</size></box></geometry>
+          <material>
+            <ambient>0.45 0.35 0.2 1</ambient>
+            <diffuse>0.55 0.45 0.25 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
+SDFEOF
+
+echo "==> warehouse.sdf créé dans : $WORLDS_DIR/"
+
+# --- Configurer les chemins d'environnement ---
+MARKER="# Simulation MC02 Custom Paths"
+if ! grep -q "$MARKER" ~/.bashrc; then
+    cat >> ~/.bashrc << EOF
+
+$MARKER
+export GZ_SIM_RESOURCE_PATH=\$HOME/simulation_mc02/worlds:\$HOME/simulation_mc02/models:\$GZ_SIM_RESOURCE_PATH
+EOF
+    echo "Chemins ajoutés à ~/.bashrc"
+else
+    echo "Chemins déjà configurés dans ~/.bashrc"
+fi
+
+# Charger pour la session courante
+export GZ_SIM_RESOURCE_PATH=$WORKSPACE/worlds:$WORKSPACE/models:$GZ_SIM_RESOURCE_PATH
+
+echo ""
+echo "=============================================="
+echo " Warehouse prêt !"
+echo "=============================================="
+echo ""
+echo "  Entrepôt : 30m x 20m x 6m"
+echo "  4 racks, 4 caisses, porte au sud"
+echo "  4 points lumineux intérieurs"
+echo ""
+echo "  Pour tester (avec rendering) :"
+echo "    gz sim -v 4 -r $WORLDS_DIR/warehouse.sdf"
+echo ""
+echo "  Pour tester (headless) :"
+echo "    gz sim -v 4 -s -r $WORLDS_DIR/warehouse.sdf"
+echo ""
+echo "==> Passe au script suivant : 06_launch_multi_drones.sh"
