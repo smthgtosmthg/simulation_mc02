@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""
-Script 15 : Bridge 5G-LENA — RSSI & Latence par paire de drones
-
-Usage:
-    python3 15_5g_lena_bridge.py              # mode live
-    python3 15_5g_lena_bridge.py --test       # mode test (sans SITL)
-    python3 15_5g_lena_bridge.py --interval 5
-"""
 
 import argparse, csv, itertools, math, os, signal, subprocess, sys, time
 from datetime import datetime
+import numpy as np
 
 MAX_STALE_SEC = 10   # positions plus vieilles que ca = stale
+LANDED_ALT    = 0.5  # altitude en dessous de laquelle un drone est considere pose
+UNCHANGED_MAX = 3    # nombre de ticks identiques avant arret (vol termine)
 
 NS3_DIR     = os.path.expanduser("~/ns-allinone-3.40/ns-3.40")
 NS3_BIN     = os.path.join(NS3_DIR, "ns3")
 POS_CSV     = "/tmp/drone_positions.csv"
 METRICS_CSV = "/tmp/drone_5g_metrics.csv"
 LOG_CSV     = "/tmp/drone_5g_log.csv"
+RSSI_CSV    = "/tmp/drone_rssi_sionna.csv"
+LATENCY_CSV = "/tmp/drone_latency_ns3.csv"
+
+# ── Sionna / Radio parameters ─────────────────────────────
+SCENE_XML = os.path.expanduser(
+    "~/ns-allinone-3.40/ns-3.40/contrib/sionna/model/ns3sionna/"
+    "models/warehouse/warehouse.xml"
+)
+TX_POWER_DBM    = 23.0          # gNB TX power (coherent avec NS-3)
+FREQUENCY_GHZ   = 3.5           # 5G NR n78
+BANDWIDTH_MHZ   = 20
+GNB_POSITION    = (0.0, 0.0, 6.0)  # Position du gNB (coherent avec NS-3)
 
 running = True
 
@@ -54,7 +61,8 @@ def read_positions(path):
 
 
 def read_pair_metrics(path):
-    """Lit CSV metriques par paire -> liste de dicts."""
+    """Lit CSV metriques NS-3 par paire -> liste de dicts.
+    On ne garde que latence/jitter/rx de NS-3 (le RSSI vient de Sionna)."""
     pairs = []
     try:
         with open(path) as f:
@@ -62,8 +70,6 @@ def read_pair_metrics(path):
                 pairs.append({
                     "a": int(row["drone_a"]),
                     "b": int(row["drone_b"]),
-                    "rssi_a": float(row["rssi_a_dBm"]),
-                    "rssi_b": float(row["rssi_b_dBm"]),
                     "latency": float(row["latency_ms"]),
                     "jitter": float(row["jitter_ms"]),
                     "dist": float(row["dist_ab_m"]),
@@ -72,6 +78,75 @@ def read_pair_metrics(path):
     except Exception:
         pass
     return pairs
+
+
+
+
+def compute_rssi_sionna(scene, pos_drone, pos_gnb=GNB_POSITION):
+    """Ray-trace gNB → Drone (lien descendant 5G NR).
+    Retourne (rssi_dBm, delay_ns) ou (None, None) si bloque.
+    TX = gNB (position fixe), RX = drone."""
+    from sionna.rt import Transmitter, Receiver, PlanarArray, PathSolver
+
+    # Nettoyer les anciens devices
+    for name in list(scene.transmitters.keys()):
+        scene.remove(name)
+    for name in list(scene.receivers.keys()):
+        scene.remove(name)
+
+    scene.add(Transmitter(name="gnb", position=list(pos_gnb), orientation=[0, 0, 0]))
+    scene.add(Receiver(name="ue", position=list(pos_drone), orientation=[0, 0, 0]))
+
+    scene.tx_array = PlanarArray(num_rows=1, num_cols=1,
+                                  vertical_spacing=0.5, horizontal_spacing=0.5,
+                                  pattern="dipole", polarization="V")
+    scene.rx_array = PlanarArray(num_rows=1, num_cols=1,
+                                  vertical_spacing=0.5, horizontal_spacing=0.5,
+                                  pattern="dipole", polarization="V")
+
+    solver = PathSolver()
+    paths = solver(scene=scene, max_depth=3, samples_per_src=10**6,
+                   los=True, specular_reflection=True, diffuse_reflection=False,
+                   refraction=True, synthetic_array=False,
+                   diffraction=False, edge_diffraction=False)
+
+    a, tau = paths.cir(sampling_frequency=1e9, normalize_delays=False, out_type="numpy")
+    tau_flat = np.squeeze(tau)
+    valid = tau_flat[tau_flat >= 0]
+
+    if len(valid) == 0:
+        return None, None   # BLOCKED — aucun rayon n'a atteint le drone
+
+    delay_ns = int(round(np.min(valid) * 1e9))
+
+    num_sc = 64
+    sc_spacing = BANDWIDTH_MHZ * 1e6 / num_sc
+    freqs = np.arange(num_sc) * sc_spacing
+    freqs = freqs - np.mean(freqs) + FREQUENCY_GHZ * 1e9
+
+    h = np.squeeze(paths.cfr(frequencies=freqs, sampling_frequency=1.0,
+                              num_time_steps=1, normalize_delays=True,
+                              normalize=False, out_type="numpy"))
+    mean_power = np.mean(np.abs(h) ** 2)
+    if mean_power <= 0:
+        return None, None
+
+    path_loss_dB = float(-10 * np.log10(mean_power))
+    rssi_dBm = TX_POWER_DBM - path_loss_dB
+    return rssi_dBm, delay_ns
+
+
+def compute_all_rssi(scene, positions):
+    """Calcule le RSSI gNB→Drone pour chaque drone (cache par tick).
+    Retourne {drone_id: (rssi_dBm, delay_ns)}."""
+    rssi_cache = {}
+    for did, pos in positions.items():
+        try:
+            rssi, delay = compute_rssi_sionna(scene, pos)
+        except Exception:
+            rssi, delay = None, None
+        rssi_cache[did] = (rssi, delay)
+    return rssi_cache
 
 
 def run_ns3():
@@ -143,18 +218,52 @@ def write_test_positions(tick):
     return pos
 
 
-def print_table(pairs, positions, tick, now):
-    """Affiche les resultats par paire."""
-    print(f"\n  ─── Mesure #{tick} @ {now} ─────────────────────────────────────────")
-    print(f"  ┌───────────┬───────────┬───────────┬────────────┬────────────┬─────────┐")
-    print(f"  │  Paire    │  RSSI A   │  RSSI B   │ Latence ms │ Jitter ms  │ Dist m  │")
-    print(f"  ├───────────┼───────────┼───────────┼────────────┼────────────┼─────────┤")
+def rssi_bar(rssi_val):
+    """Barre de qualite signal."""
+    if rssi_val is None:
+        return "BLOCKED"
+    elif rssi_val > -50:
+        return "█████ Excellent"
+    elif rssi_val > -60:
+        return "████░ Good"
+    elif rssi_val > -70:
+        return "███░░ Fair"
+    else:
+        return "██░░░ Weak"
+
+
+def print_table(pairs, positions, rssi_cache, tick, now):
+    """Affiche les resultats hybrides (Sionna RSSI drone→gNB + NS-3 latence)."""
+    # D'abord afficher le RSSI par drone (lien UE→gNB)
+    print(f"\n  ─── Mesure #{tick} @ {now} ─────────────────────────────────────────────────────")
+    print(f"  ┌─────────┬────────────────┬──────────┬─────────────────┐")
+    print(f"  │  Drone  │ RSSI→gNB  dBm  │ Delay ns │ Qualite         │")
+    print(f"  │   (UE)  │ (Sionna RT)    │ (Sionna) │                 │")
+    print(f"  ├─────────┼────────────────┼──────────┼─────────────────┤")
+    for did in sorted(rssi_cache.keys()):
+        rssi, delay = rssi_cache[did]
+        bar = rssi_bar(rssi)
+        if rssi is None:
+            rssi_str = "  BLOCKED  "
+            delay_str = "   ---  "
+        else:
+            rssi_str = f"{rssi:12.1f}  "
+            delay_str = f"{delay:>6}  "
+        pos = positions.get(did, (0,0,0))
+        dist_gnb = math.sqrt(sum((u - v) ** 2 for u, v in zip(pos, GNB_POSITION)))
+        print(f"  │  D{did:<4} │ {rssi_str}│ {delay_str}│ {bar:<15} │  ({pos[0]:+.1f},{pos[1]:+.1f},{pos[2]:.1f}m) d_gNB={dist_gnb:.1f}m")
+    print(f"  └─────────┴────────────────┴──────────┴─────────────────┘")
+
+    # Puis les metriques NS-3 par paire
+    print(f"  ┌───────────┬────────────┬────────────┬─────────┐")
+    print(f"  │  Paire    │ Latence ms │ Jitter ms  │ Dist m  │")
+    print(f"  │           │  (NS-3 NR) │  (NS-3 NR) │  A↔B    │")
+    print(f"  ├───────────┼────────────┼────────────┼─────────┤")
     for p in pairs:
         print(f"  │ {p['a']:>2} <-> {p['b']:<2} "
-              f"│ {p['rssi_a']:9.1f} │ {p['rssi_b']:9.1f} "
               f"│ {p['latency']:10.2f} │ {p['jitter']:10.2f} "
               f"│ {p['dist']:7.1f} │")
-    print(f"  └───────────┴───────────┴───────────┴────────────┴────────────┴─────────┘\n")
+    print(f"  └───────────┴────────────┴────────────┴─────────┘\n")
 
 
 def main():
@@ -169,15 +278,34 @@ def main():
         sys.exit(1)
 
     print()
-    print("  5G-LENA BRIDGE — RSSI & Latence par paire de drones")
+    print("  5G-LENA + SIONNA HYBRID BRIDGE")
+    print("  RSSI    : Sionna ray-tracing (geometrie reelle du warehouse)")
+    print("  Latence : NS-3 5G NR (scheduling + EPC bout-en-bout)")
     print("  Architecture: Drone_A (UE) --NR--> gNB --S1U--> EPC --S1U--> gNB --NR--> Drone_B (UE)")
-    print("  Canal: 3GPP TR 38.901 InH-OfficeOpen | Freq: 3.5 GHz | BW: 20 MHz")
+    print(f"  gNB: ({GNB_POSITION[0]}, {GNB_POSITION[1]}, {GNB_POSITION[2]})m")
+    print(f"  Freq: {FREQUENCY_GHZ} GHz | BW: {BANDWIDTH_MHZ} MHz | TX: {TX_POWER_DBM} dBm")
     print()
 
-    # Init log
-    with open(LOG_CSV, "w") as f:
-        f.write("timestamp,tick,drone_a,drone_b,rssi_a_dBm,rssi_b_dBm,"
+    # Init CSV logs (separes : RSSI Sionna / Latence NS-3)
+    with open(RSSI_CSV, "w") as f:
+        f.write("timestamp,tick,drone_id,x,y,z,dist_gnb_m,"
+                "rssi_gnb_dBm,delay_gnb_ns,status\n")
+    with open(LATENCY_CSV, "w") as f:
+        f.write("timestamp,tick,drone_a,drone_b,"
                 "latency_ms,jitter_ms,dist_ab_m,rx_packets\n")
+    with open(LOG_CSV, "w") as f:
+        f.write("timestamp,tick,drone_a,drone_b,"
+                "rssi_a_gnb_dBm,delay_a_gnb_ns,rssi_b_gnb_dBm,delay_b_gnb_ns,"
+                "latency_ns3_ms,jitter_ns3_ms,dist_ab_m,rx_packets,status_a,status_b\n")
+
+    # Charger la scene Sionna UNE SEULE FOIS
+    print("  Chargement de la scene Sionna (warehouse)...")
+    from sionna.rt import load_scene
+    scene = load_scene(SCENE_XML, merge_shapes=False)
+    scene.frequency = FREQUENCY_GHZ * 1e9
+    scene.bandwidth = BANDWIDTH_MHZ * 1e6
+    print(f"  Scene chargee — {len(scene.objects)} objets")
+    print()
 
     # ATTENDRE les positions avant de commencer la boucle
     positions = wait_for_positions(args.test)
@@ -187,6 +315,8 @@ def main():
 
     tick = 0
     t_start = time.time()
+    prev_positions = None
+    unchanged_count = 0
 
     while running:
         tick += 1
@@ -212,6 +342,25 @@ def main():
                 time.sleep(args.interval)
                 continue
 
+        # Detection vol termine : positions identiques ou drones poses
+        if prev_positions is not None and positions == prev_positions:
+            unchanged_count += 1
+        else:
+            unchanged_count = 0
+        prev_positions = dict(positions)
+
+        all_landed = all(z < LANDED_ALT for _, _, z in positions.values())
+
+        if unchanged_count >= UNCHANGED_MAX and all_landed:
+            print(f"\n  [{now}] Vol termine detecte : positions inchangees "
+                  f"depuis {unchanged_count} ticks et tous les drones poses (z < {LANDED_ALT}m).")
+            break
+
+        if unchanged_count >= UNCHANGED_MAX:
+            print(f"  [{now}] Positions inchangees depuis {unchanged_count} ticks "
+                  f"(le script de vol est peut-etre termine).")
+            break
+
         # Simulation NS-3 5G NR
         print(f"  [{now}] #{tick}: {len(positions)} drones ...", end=" ", flush=True)
         t0 = time.time()
@@ -228,30 +377,86 @@ def main():
 
         print(f"OK ({dt:.1f}s)")
 
-        # Lire les metriques par paire
-        pairs = read_pair_metrics(METRICS_CSV)
-        if not pairs:
-            print(f"  Pas de metriques.")
+        # Lire les metriques NS-3 (latence/jitter/rx uniquement)
+        ns3_pairs = read_pair_metrics(METRICS_CSV)
+        if not ns3_pairs:
+            print(f"  Pas de metriques NS-3.")
             time.sleep(args.interval)
             continue
 
-        print_table(pairs, positions, tick, now)
+        # Calculer RSSI Sionna pour chaque drone → gNB (ray-tracing reel)
+        print(f"  [{now}] Sionna ray-tracing (drone→gNB)...", end=" ", flush=True)
+        t_sionna = time.time()
+        rssi_cache = compute_all_rssi(scene, positions)
+        dt_sionna = time.time() - t_sionna
+        n_blocked = sum(1 for r, _ in rssi_cache.values() if r is None)
+        print(f"OK ({dt_sionna:.1f}s) — {len(rssi_cache)} drones, {n_blocked} blocked")
 
-        # Log CSV
-        with open(LOG_CSV, "a") as f:
+        # Construire les paires avec RSSI par drone
+        pairs = []
+        for ns3p in ns3_pairs:
+            a_id, b_id = ns3p["a"], ns3p["b"]
+            pos_a = positions.get(a_id, (0, 0, 0))
+            pos_b = positions.get(b_id, (0, 0, 0))
+            dist = math.sqrt(sum((u - v) ** 2 for u, v in zip(pos_a, pos_b)))
+
+            rssi_a, delay_a = rssi_cache.get(a_id, (None, None))
+            rssi_b, delay_b = rssi_cache.get(b_id, (None, None))
+
+            pairs.append({
+                "a": a_id,
+                "b": b_id,
+                "rssi_a": rssi_a,           # Sionna: drone A → gNB
+                "delay_a": delay_a,         # Sionna: propagation A→gNB
+                "rssi_b": rssi_b,           # Sionna: drone B → gNB
+                "delay_b": delay_b,         # Sionna: propagation B→gNB
+                "latency": ns3p["latency"], # NS-3 (bout-en-bout)
+                "jitter": ns3p["jitter"],   # NS-3
+                "dist": dist,
+                "rx": ns3p["rx"],           # NS-3
+            })
+
+        print_table(pairs, positions, rssi_cache, tick, now)
+
+        # === CSV RSSI Sionna (1 ligne par drone) ===
+        with open(RSSI_CSV, "a") as f:
+            for did in sorted(rssi_cache.keys()):
+                rssi, delay = rssi_cache[did]
+                pos = positions.get(did, (0, 0, 0))
+                dist_gnb = math.sqrt(sum((u - v) ** 2 for u, v in zip(pos, GNB_POSITION)))
+                rssi_str = f"{rssi:.2f}" if rssi is not None else "BLOCKED"
+                delay_str = f"{delay}" if delay is not None else "BLOCKED"
+                status = "LOS" if rssi is not None else "BLOCKED"
+                f.write(f"{now},{tick},{did},{pos[0]:.4f},{pos[1]:.4f},{pos[2]:.4f},"
+                        f"{dist_gnb:.2f},{rssi_str},{delay_str},{status}\n")
+
+        # === CSV Latence NS-3 (1 ligne par paire) ===
+        with open(LATENCY_CSV, "a") as f:
             for p in pairs:
-                pos_a = positions.get(p["a"], (0, 0, 0))
-                pos_b = positions.get(p["b"], (0, 0, 0))
                 f.write(f"{now},{tick},{p['a']},{p['b']},"
-                        f"{p['rssi_a']:.2f},{p['rssi_b']:.2f},"
                         f"{p['latency']:.2f},{p['jitter']:.2f},"
                         f"{p['dist']:.2f},{p['rx']}\n")
+
+        # === CSV combine (pour compatibilite) ===
+        with open(LOG_CSV, "a") as f:
+            for p in pairs:
+                rssi_a_str = f"{p['rssi_a']:.2f}" if p['rssi_a'] is not None else "BLOCKED"
+                delay_a_str = f"{p['delay_a']}" if p['delay_a'] is not None else "BLOCKED"
+                rssi_b_str = f"{p['rssi_b']:.2f}" if p['rssi_b'] is not None else "BLOCKED"
+                delay_b_str = f"{p['delay_b']}" if p['delay_b'] is not None else "BLOCKED"
+                status_a = "LOS" if p['rssi_a'] is not None else "BLOCKED"
+                status_b = "LOS" if p['rssi_b'] is not None else "BLOCKED"
+                f.write(f"{now},{tick},{p['a']},{p['b']},"
+                        f"{rssi_a_str},{delay_a_str},{rssi_b_str},{delay_b_str},"
+                        f"{p['latency']:.2f},{p['jitter']:.2f},"
+                        f"{p['dist']:.2f},{p['rx']},{status_a},{status_b}\n")
 
         time.sleep(args.interval)
 
     print(f"\n  Bridge arrete apres {tick} mesures.")
-    print(f"  Log: {LOG_CSV}")
-    print(f"  Metriques: {METRICS_CSV}\n")
+    print(f"  RSSI Sionna  : {RSSI_CSV}")
+    print(f"  Latence NS-3 : {LATENCY_CSV}")
+    print(f"  Log combine  : {LOG_CSV}\n")
 
 
 if __name__ == "__main__":

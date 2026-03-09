@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 """
-Script 14 : Live Bridge — Watches position CSV → RSSI/Latency → 3D Render.
+Script 14 : Live Bridge — RSSI (Sionna) + Latence (NS-3 WiFi) → 3D Render.
 
-Decoupled from MAVLink: script 08 writes positions to CSV, this script
-watches that file and computes RSSI & latency using Sionna ray-tracing.
+Architecture HYBRIDE :
+    RSSI    → Sionna ray-tracing (géométrie réelle du warehouse)
+    Latence → NS-3 WiFi Ad-Hoc (FlowMonitor : MAC + propagation + queuing)
 
-Architecture:
-    Script 06 (Gazebo+SITL)  →  Script 08 (flight + writes /tmp/drone_positions.csv)
-                                      ↓
-    Script 14 (this) watches CSV → computes RSSI → renders 3D → prints table
+Pipeline:
+    Script 06 (Gazebo+SITL) → Script 08 (vol + écrit /tmp/drone_positions.csv)
+                                    ↓
+    Script 14 (this) :
+        1. Lance NS-3 WiFi en arrière-plan (latence réelle via FlowMonitor)
+        2. Lit les positions depuis le CSV
+        3. Calcule le RSSI via Sionna ray-tracing (path loss réaliste)
+        4. Lit la latence depuis /tmp/ns3_output.csv (écrit par NS-3)
+        5. Combine → affichage + CSV
 
 Usage:
     python3 14_live_bridge.py              # watch /tmp/drone_positions.csv
     python3 14_live_bridge.py --test       # fake moving drones (no SITL needed)
+    python3 14_live_bridge.py --no-ns3     # skip NS-3 (propagation delay only)
 
 Output files:
-    /tmp/drone_rssi_latency.csv    — RSSI & latency per pair
+    /tmp/drone_rssi_latency.csv    — RSSI (Sionna) & latency (NS-3) per pair
     /tmp/sionna_renders/latest.png — 3D render
     /tmp/drone_bridge_log.csv      — full log with timestamps
 """
 
-import argparse, csv, itertools, math, os, signal, sys, time
+import argparse, csv, itertools, math, os, signal, subprocess, sys, time
 from datetime import datetime
 import numpy as np
 
@@ -34,6 +41,12 @@ RSSI_CSV   = "/tmp/drone_rssi_latency.csv"
 LOG_CSV    = "/tmp/drone_bridge_log.csv"
 RENDER_DIR = "/tmp/sionna_renders"
 RENDER_PNG = os.path.join(RENDER_DIR, "latest.png")
+
+# ── NS-3 WiFi (source de latence réelle) ──────────────────
+NS3_DIR      = os.path.expanduser("~/ns-allinone-3.40/ns-3.40")
+NS3_BIN      = os.path.join(NS3_DIR, "ns3")
+NS3_OUT_CSV  = "/tmp/ns3_output.csv"
+NS3_SCENARIO = "drone-wifi-scenario"
 
 # ── WiFi 802.11ax parameters ──────────────────────────────
 TX_POWER_DBM  = 20.0
@@ -90,12 +103,102 @@ def fake_positions(tick):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  RSSI computation (reuse logic from script 13)
+#  NS-3 WiFi : lance / lit / arrête le simulateur réseau
+#  → Fournit la LATENCE RÉELLE (MAC 802.11 + queuing + propagation)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_ns3_process = None
+
+
+def launch_ns3(n_drones=3, sim_time=300):
+    """Lance NS-3 WiFi ad-hoc en arrière-plan (mode temps réel).
+    NS-3 lit les positions depuis le même CSV que script 08 écrit,
+    mesure la latence réelle via FlowMonitor, et écrit dans NS3_OUT_CSV."""
+    global _ns3_process
+
+    if not os.path.isfile(NS3_BIN):
+        print(f"  ⚠ NS-3 non trouvé : {NS3_BIN}")
+        print(f"    → Latence sera estimée (propagation uniquement)")
+        return False
+
+    # Nettoyer l'ancien fichier de sortie
+    if os.path.exists(NS3_OUT_CSV):
+        os.remove(NS3_OUT_CSV)
+
+    cmd = [
+        NS3_BIN, "run",
+        f"{NS3_SCENARIO} "
+        f"--nDrones={n_drones} "
+        f"--posFile={POS_CSV} "
+        f"--outFile={NS3_OUT_CSV} "
+        f"--simTime={sim_time} "
+        f"--channelModel=log-distance",
+        "--no-build",
+    ]
+    print(f"  ⏳ Lancement NS-3 WiFi ({NS3_SCENARIO})...")
+    try:
+        _ns3_process = subprocess.Popen(
+            cmd, cwd=NS3_DIR,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+        # Attendre un instant pour vérifier qu'il ne crash pas
+        time.sleep(2)
+        if _ns3_process.poll() is not None:
+            err = _ns3_process.stderr.read().decode()[-300:]
+            print(f"  ⚠ NS-3 a crashé : {err}")
+            _ns3_process = None
+            return False
+        print(f"  ✓ NS-3 lancé en arrière-plan (PID {_ns3_process.pid})")
+        return True
+    except Exception as e:
+        print(f"  ⚠ Erreur lancement NS-3 : {e}")
+        _ns3_process = None
+        return False
+
+
+def read_ns3_latency():
+    """Lit le CSV de sortie NS-3 → {(drone_i, drone_j): latency_ms}.
+    Garde la dernière mesure par paire."""
+    latest = {}
+    try:
+        with open(NS3_OUT_CSV) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    i = int(row["drone_i"])
+                    j = int(row["drone_j"])
+                    lat = float(row["latency_ms"])
+                    key = (min(i, j), max(i, j))
+                    latest[key] = lat
+                except (ValueError, KeyError):
+                    continue
+    except FileNotFoundError:
+        pass
+    return latest
+
+
+def stop_ns3():
+    """Arrête proprement le processus NS-3."""
+    global _ns3_process
+    if _ns3_process and _ns3_process.poll() is None:
+        _ns3_process.terminate()
+        try:
+            _ns3_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _ns3_process.kill()
+        print(f"  NS-3 arrêté.")
+    _ns3_process = None
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  RSSI computation via Sionna (path loss réaliste, géométrie warehouse)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
 def compute_rssi(scene, pos_a, pos_b):
-    """Ray-trace between two positions → (path_loss_dB, delay_ns) or (None, None)."""
+    """Ray-trace between two positions → (path_loss_dB, propagation_delay_ns).
+    NOTE: propagation_delay_ns est le délai physique EM uniquement (~ns).
+    La latence réseau réelle est fournie par NS-3 (~ms)."""
     from sionna.rt import Transmitter, Receiver, PlanarArray, PathSolver
 
     # Clean old devices
@@ -190,9 +293,9 @@ def write_fake_positions_csv(positions):
 
 
 def write_rssi_csv(results):
-    """Write RSSI results to CSV (overwrite)."""
+    """Write RSSI (Sionna) + latency (NS-3) results to CSV (overwrite)."""
     with open(RSSI_CSV, "w") as f:
-        f.write("drone_a,drone_b,rssi_dBm,delay_ns,distance_m\n")
+        f.write("drone_a,drone_b,rssi_dBm,latency_ms,distance_m,latency_source\n")
         for row in results:
             f.write(",".join(str(v) for v in row) + "\n")
 
@@ -203,12 +306,14 @@ def append_log(tick, positions, results):
     write_header = not os.path.exists(LOG_CSV) or os.path.getsize(LOG_CSV) == 0
     with open(LOG_CSV, "a") as f:
         if write_header:
-            f.write("time,tick,drone_a,drone_b,rssi_dBm,delay_ns,dist_m,"
-                    "ax,ay,az,bx,by,bz\n")
-        for id_a, id_b, rssi, delay, dist in results:
+            f.write("time,tick,drone_a,drone_b,rssi_dBm,latency_ms,dist_m,"
+                    "latency_source,ax,ay,az,bx,by,bz\n")
+        for row in results:
+            id_a, id_b, rssi, latency, dist = row[0], row[1], row[2], row[3], row[4]
+            lat_src = row[5] if len(row) > 5 else ""
             pa = positions[id_a]
             pb = positions[id_b]
-            f.write(f"{ts},{tick},{id_a},{id_b},{rssi},{delay},{dist},"
+            f.write(f"{ts},{tick},{id_a},{id_b},{rssi},{latency},{dist},{lat_src},"
                     f"{pa[0]:.2f},{pa[1]:.2f},{pa[2]:.2f},"
                     f"{pb[0]:.2f},{pb[1]:.2f},{pb[2]:.2f}\n")
 
@@ -247,14 +352,17 @@ def print_table(tick, positions, results, elapsed):
         pos_parts.append(f"D{did}({x:.1f},{y:.1f},{z:.1f})")
     print(f"  Pos: {'  '.join(pos_parts)}")
 
-    # ── RSSI pairs ──
-    for i, (id_a, id_b, rssi, delay, dist) in enumerate(results):
+    # ── RSSI + Latency pairs ──
+    for i, row in enumerate(results):
+        id_a, id_b, rssi, latency, dist = row[0], row[1], row[2], row[3], row[4]
+        lat_src = row[5] if len(row) > 5 else ""
         if rssi == "blocked" or rssi == "error":
-            line = f"  {id_a}↔{id_b}  {dist:>6}m   {'BLOCKED':>10}   {'---':>6}   ⛔ No path"
+            line = f"  {id_a}↔{id_b}  {dist:>6}m   {'BLOCKED':>10}   {'---':>8}     ⛔ No path"
         else:
             rssi_f = float(rssi)
             bar = rssi_bar(rssi_f)
-            line = f"  {id_a}↔{id_b}  {dist:>6}m  {rssi:>8} dBm  {delay:>4} ns   {bar}"
+            src_tag = f"[{lat_src}]" if lat_src else ""
+            line = f"  {id_a}↔{id_b}  {dist:>6}m  {rssi:>8} dBm  {latency:>6} ms  {bar} {src_tag}"
         print(line)
 
 
@@ -264,7 +372,7 @@ def print_table(tick, positions, results, elapsed):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Live Bridge: watches position CSV → Sionna RSSI")
+    parser = argparse.ArgumentParser(description="Live Bridge: RSSI (Sionna) + Latence (NS-3 WiFi)")
     parser.add_argument("--test", action="store_true",
                         help="Fake moving drones (no SITL needed)")
     parser.add_argument("--csv", default=POS_CSV,
@@ -273,6 +381,8 @@ def main():
                         help="Number of cycles (0 = infinite)")
     parser.add_argument("--no-render", action="store_true",
                         help="Skip 3D render (faster)")
+    parser.add_argument("--no-ns3", action="store_true",
+                        help="Skip NS-3 (use propagation delay estimation only)")
     args = parser.parse_args()
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -280,8 +390,9 @@ def main():
     # ── Startup banner ──
     print()
     print("┌" + "─" * (W - 2) + "┐")
-    print("│" + "  LIVE BRIDGE — Sionna Ray-Tracing ↔ Drone Positions".ljust(W - 2) + "│")
+    print("│" + "  LIVE BRIDGE — RSSI (Sionna) + Latence (NS-3 WiFi)".ljust(W - 2) + "│")
     print("│" + f"  802.11ax · {FREQUENCY_GHZ} GHz · BW {BANDWIDTH_MHZ} MHz · TX {TX_POWER_DBM:.0f} dBm".ljust(W - 2) + "│")
+    print("│" + "  RSSI: Sionna ray-tracing | Latence: NS-3 FlowMonitor".ljust(W - 2) + "│")
     mode_str = "TEST (fake drones)" if args.test else f"WATCHING {args.csv}"
     print("│" + f"  Mode: {mode_str}".ljust(W - 2) + "│")
     print("└" + "─" * (W - 2) + "┘")
@@ -293,6 +404,17 @@ def main():
     scene.frequency = FREQUENCY_GHZ * 1e9
     scene.bandwidth = BANDWIDTH_MHZ * 1e6
     print(f"  ✓ Scene loaded — {len(scene.objects)} objects")
+
+    # ── Launch NS-3 WiFi (background, real-time mode) ────
+    ns3_ok = False
+    if not args.no_ns3:
+        # En mode test, écrire des positions initiales pour que NS-3 puisse démarrer
+        if args.test:
+            write_fake_positions_csv(fake_positions(0))
+        n_drones = 3
+        ns3_ok = launch_ns3(n_drones=n_drones, sim_time=600)
+    else:
+        print("  ⚠ NS-3 désactivé (--no-ns3) — latence estimée uniquement")
 
     # Clear old log
     if os.path.exists(LOG_CSV):
@@ -328,24 +450,42 @@ def main():
             continue
         last_positions = dict(positions)
 
-        # ── 3. Compute RSSI for all pairs ────────────────
+        # ── 3. Compute RSSI (Sionna) for all pairs ──────
         drone_ids = sorted(positions.keys())
         pairs = list(itertools.combinations(drone_ids, 2))
         results = []
+
+        # Lire la latence NS-3 (MAC + queuing + propagation réelle)
+        ns3_lat = read_ns3_latency() if ns3_ok else {}
 
         for id_a, id_b in pairs:
             pa, pb = positions[id_a], positions[id_b]
             dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(pa, pb)))
 
+            # RSSI via Sionna ray-tracing (path loss réaliste)
             try:
-                pl, delay = compute_rssi(scene, pa, pb)
+                pl, _prop_delay = compute_rssi(scene, pa, pb)
                 if pl is None:
-                    results.append((id_a, id_b, "blocked", "blocked", f"{dist:.2f}"))
+                    rssi_str = "blocked"
                 else:
-                    rssi = TX_POWER_DBM - pl
-                    results.append((id_a, id_b, f"{rssi:.2f}", f"{delay}", f"{dist:.2f}"))
-            except Exception as e:
-                results.append((id_a, id_b, "error", "error", f"{dist:.2f}"))
+                    rssi_str = f"{TX_POWER_DBM - pl:.2f}"
+            except Exception:
+                rssi_str = "error"
+
+            # Latence via NS-3 WiFi (réelle) ou estimation (fallback)
+            pair_key = (min(id_a, id_b), max(id_a, id_b))
+            lat_ms = ns3_lat.get(pair_key)
+            if lat_ms is not None:
+                lat_str = f"{lat_ms:.2f}"
+                lat_src = "ns3"
+            elif rssi_str not in ("blocked", "error"):
+                lat_str = f"{dist / 3e8 * 1e3 + 2.0:.2f}"
+                lat_src = "est"
+            else:
+                lat_str = "---"
+                lat_src = ""
+
+            results.append((id_a, id_b, rssi_str, lat_str, f"{dist:.2f}", lat_src))
 
         # ── 4. Write RSSI CSV ────────────────────────────
         write_rssi_csv(results)
@@ -370,8 +510,13 @@ def main():
             break
 
     # Cleanup
+    stop_ns3()
     print(f"\n{'─' * W}")
     print(f"  Bridge stopped.  Log → {LOG_CSV}")
+    if ns3_ok:
+        print(f"  Latency source: NS-3 WiFi FlowMonitor (realistic)")
+    else:
+        print(f"  Latency source: estimation (propagation only)")
     print(f"{'─' * W}")
 
 

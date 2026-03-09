@@ -80,6 +80,19 @@ export GZ_SIM_RESOURCE_PATH=$MODELS_DIR:$PLUGIN_DIR/models:$PLUGIN_DIR/worlds:$W
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
 export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
 
+# Auto-détection du display X11 (corrige DISPLAY invalide, ex. :10 via SSH)
+if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+    # Chercher un display actif dans /tmp/.X11-unix/
+    for sock in /tmp/.X11-unix/X*; do
+        d=":${sock##*/tmp/.X11-unix/X}"
+        if xdpyinfo -display "$d" >/dev/null 2>&1; then
+            echo "  (DISPLAY=$DISPLAY invalide, basculement vers $d)"
+            export DISPLAY="$d"
+            break
+        fi
+    done
+fi
+
 # ============================================================
 # Créer les copies du modèle iris (ports uniques)
 # ============================================================
