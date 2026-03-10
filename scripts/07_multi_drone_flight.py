@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""
-Script 8 : Vol automatique multi-drones — ArduPilot SITL
-
-Usage :
-    python3 08_multi_drone_flight.py --drones 3
-    python3 08_multi_drone_flight.py --drones 5 --altitude 5 --hover 30
-    python3 08_multi_drone_flight.py --drones 3 --alt-step 2
-
-Séquence :
-    1. Connexion à N drones (tcp:127.0.0.1:5760+I*10)
-    2. Attente de la calibration EKF
-    3. Mode GUIDED pour tous les drones
-    4. Arm + Takeoff (altitudes décalées pour éviter les collisions)
-    5. Hover (affichage des positions)
-    6. Atterrissage (mode LAND)
-
-Prérequis : 06_launch_multi_drones.sh doit tourner dans un autre terminal.
-"""
 
 import argparse
 import signal
