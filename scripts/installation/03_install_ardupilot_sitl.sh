@@ -1,19 +1,11 @@
 #!/bin/bash
-###############################################################################
-# Script 3 : Installation d'ArduPilot SITL + plugin Gazebo
-# ArduPilot est le flight controller open-source pour drones.
-# SITL permet de simuler le firmware ArduPilot sans matériel réel.
-# ardupilot_gazebo = plugin pour connecter ArduPilot à Gazebo Harmonic.
-###############################################################################
 set -e
 
 echo "=============================================="
-echo " [3/4] Installation d'ArduPilot SITL + Gazebo"
+echo " [3/5] Installation d'ArduPilot SITL + Gazebo"
 echo "=============================================="
 
-# ============================================================
 # Partie A : Cloner et configurer ArduPilot
-# ============================================================
 ARDUPILOT_DIR="$HOME/ardupilot"
 
 if [ -d "$ARDUPILOT_DIR" ]; then
@@ -49,9 +41,7 @@ cd "$ARDUPILOT_DIR"
 echo ""
 echo "==> ArduPilot SITL (ArduCopter) compilé avec succès !"
 
-# ============================================================
 # Partie B : Installer le plugin ardupilot_gazebo
-# ============================================================
 echo ""
 echo "Installation du plugin ardupilot_gazebo pour Gazebo Harmonic..."
 
@@ -76,9 +66,7 @@ make -j$(nproc)
 echo ""
 echo "==> Plugin ardupilot_gazebo compilé avec succès !"
 
-# ============================================================
 # Partie C : Configurer les variables d'environnement
-# ============================================================
 echo ""
 echo "Configuration des variables d'environnement..."
 
@@ -101,8 +89,5 @@ export GZ_SIM_SYSTEM_PLUGIN_PATH=$HOME/ardupilot_gazebo/build:$GZ_SIM_SYSTEM_PLU
 export GZ_SIM_RESOURCE_PATH=$HOME/ardupilot_gazebo/models:$HOME/ardupilot_gazebo/worlds:$GZ_SIM_RESOURCE_PATH
 
 echo ""
-echo "=============================================="
 echo " ArduPilot SITL + Plugin Gazebo installés !"
-echo "=============================================="
 echo ""
-echo "==> Passe au script suivant : 04_test_single_drone.sh"

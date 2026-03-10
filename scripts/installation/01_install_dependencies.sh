@@ -1,14 +1,8 @@
 #!/bin/bash
-###############################################################################
-# Script 1 : Installation des dépendances système
-# Cible    : Ubuntu 22.04 LTS
-# GPU      : NVIDIA RTX 2060 SUPER (drivers déjà installés)
-# Stack    : ArduPilot SITL + Gazebo Harmonic
-###############################################################################
 set -e
 
 echo "=============================================="
-echo " [1/4] Installation des dépendances système"
+echo " [1/5] Installation des dépendances système"
 echo "=============================================="
 
 sudo apt-get update
@@ -59,7 +53,6 @@ sudo apt-get install -y \
     gstreamer1.0-plugins-ugly
 
 # Outils Python supplémentaires via pip
-# IMPORTANT : numpy<2 est requis pour la compatibilité avec matplotlib système
 pip3 install --user "numpy<2" pymavlink MAVProxy pexpect dronekit dronekit-sitl
 
 echo ""

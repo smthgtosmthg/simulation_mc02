@@ -1,26 +1,7 @@
 #!/bin/bash
-###############################################################################
-# Script 6 : Lancement de N drones dans le Warehouse
-#
-# Usage : ./06_launch_multi_drones.sh [N]     (défaut: 3)
-#
-# Ce script :
-#   1. Crée N copies du modèle iris avec des ports UDP uniques
-#   2. Génère un monde SDF (warehouse + N drones)
-#   3. Lance Gazebo Harmonic
-#   4. Lance N instances ArduPilot SITL (sim_vehicle.py)
-#
-# Ports par instance I :
-#   - Gazebo plugin : fdm_port_in=9002+I*10, fdm_port_out=9003+I*10
-#   - MAVLink TCP   : 5760 + I*10
-#
-# Pour arrêter : Ctrl+C (nettoyage automatique)
-###############################################################################
 set -e
 
-# ============================================================
 # Configuration
-# ============================================================
 N_DRONES=${1:-3}
 DRONE_SPACING=3       # mètres entre drones sur l'axe X
 
@@ -36,9 +17,7 @@ echo "=============================================="
 echo " [6] Multi-Drones : $N_DRONES drones"
 echo "=============================================="
 
-# ============================================================
 # Vérifications
-# ============================================================
 if [ ! -d "$ARDUPILOT_DIR" ]; then
     echo "ERREUR : ArduPilot non trouvé dans $ARDUPILOT_DIR"
     echo "Lance d'abord le script 03_install_px4_sitl.sh"
@@ -59,9 +38,7 @@ fi
 
 mkdir -p "$MODELS_DIR" "$WORLDS_DIR"
 
-# ============================================================
 # Nettoyage des anciens processus
-# ============================================================
 echo ""
 echo "Nettoyage des anciens processus..."
 pkill -f arducopter 2>/dev/null || true
