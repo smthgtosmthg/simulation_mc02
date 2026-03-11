@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""
-Script 08b : Vol dynamique multi-drones — Patrouille dans le warehouse
-
-Scénario « Patrouille » :
-    Les 3 drones décollent puis suivent des waypoints à travers le warehouse.
-    Certains waypoints passent derrière les étagères (NLOS → RSSI faible),
-    d'autres rapprochent les drones (meilleur signal), d'autres les éloignent.
-
-    Cela crée des variations réalistes de RSSI et latence pour le live bridge.
-
-Architecture :
-    Script 06 (Gazebo+SITL)  →  ce script (vol + écrit /tmp/drone_positions.csv)
-                                      ↓
-    Script 14 (live bridge) watches CSV → RSSI → render
-
-Usage :
-    python3 08b_dynamic_flight.py              # 3 drones, patrouille
-    python3 08b_dynamic_flight.py --drones 3 --speed 1.5 --loops 2
-
-Prérequis : 06_launch_multi_drones.sh doit tourner dans un autre terminal.
-"""
 
 import argparse
 import math
@@ -31,52 +10,42 @@ try:
     from pymavlink import mavutil
 except ImportError:
     print("ERREUR: pymavlink non installé.")
-    print("Installe avec : pip3 install pymavlink")
     sys.exit(1)
 
-# ============================================================
-# Constantes ArduCopter
-# ============================================================
 MODE_GUIDED = 4
 MODE_LAND   = 9
 
-# ============================================================
-# Waypoints de patrouille par drone
-# ============================================================
-# Le warehouse fait ~30x20m, étagères à (±7, ±5), plafond 6m.
+
 # On fait passer les drones à travers des zones variées :
-#   - Derrière les étagères (NLOS)
-#   - Au centre (LOS, proches)
-#   - Aux extrémités (LOS, loin)
-#   - À différentes altitudes (au-dessus / en-dessous des étagères 3m)
+#   - Derrière les étagères
+#   - Au centre 
+#   - Aux extrémités 
+#   - À différentes altitudes 
 
 WAYPOINTS = {
-    # Drone 0 : ouest ↔ est, passe derrière étagères — mouvements amples
     0: [
-        (-10.0,  5.5,  1.5),  # WP1: Derrière étagère NW, bas → NLOS immédiat
-        ( 0.5,   0.5,  5.5),  # WP2: Centre haut → LOS, proche de D1
-        (-12.0, -6.0,  1.5),  # WP3: Coin SW bas derrière étagère → NLOS
-        ( 10.0,  5.5,  1.5),  # WP4: Traverse tout → derrière étagère NE → NLOS
-        ( 0.0,   0.0,  5.8),  # WP5: Plafond centre → LOS max
-        (-8.0,  -5.5,  1.5),  # WP6: Derrière étagère SW → NLOS
+        (-10.0,  5.5,  1.5),  
+        ( 0.5,   0.5,  5.5),  
+        (-12.0, -6.0,  1.5),  
+        ( 10.0,  5.5,  1.5),  
+        ( 0.0,   0.0,  5.8),  
+        (-8.0,  -5.5,  1.5),  
     ],
-    # Drone 1 : zigzag nord-sud, change d'altitude radicalement
     1: [
-        ( 0.0,   8.0,  1.5),  # WP1: Nord extrême, bas → NLOS (étagères entre)
-        ( 0.0,  -8.0,  5.5),  # WP2: Sud extrême, haut → LOS
-        ( 7.5,   5.5,  1.5),  # WP3: Derrière étagère NE → NLOS vs D0
-        (-7.5,  -5.5,  5.5),  # WP4: Au-dessus étagère SW → LOS
-        ( 1.0,   0.5,  5.5),  # WP5: Centre → LOS, très proche D0 et D2
-        ( 7.5,   5.5,  1.0),  # WP6: Retour derrière étagère NE → NLOS
+        ( 0.0,   8.0,  1.5),  
+        ( 0.0,  -8.0,  5.5),  
+        ( 7.5,   5.5,  1.5),  
+        (-7.5,  -5.5,  5.5),  
+        ( 1.0,   0.5,  5.5),  
+        ( 7.5,   5.5,  1.0),  
     ],
-    # Drone 2 : grands déplacements est-ouest, altitudes variées
     2: [
-        ( 12.0,  0.0,  2.0),  # WP1: Extrême est, bas → loin de D0
-        (-12.0,  0.0,  5.5),  # WP2: Extrême ouest, haut → 24m traversée !
-        ( 8.0,  -5.5,  1.5),  # WP3: Derrière étagère SE → NLOS
-        (-0.5,   0.5,  5.5),  # WP4: Centre haut → LOS, collé à D0+D1
-        ( 10.0,  5.5,  1.0),  # WP5: Derrière étagère NE bas → NLOS total
-        (-8.0,   5.5,  5.5),  # WP6: Au-dessus étagère NW → LOS
+        ( 12.0,  0.0,  2.0),  
+        (-12.0,  0.0,  5.5),  
+        ( 8.0,  -5.5,  1.5),  
+        (-0.5,   0.5,  5.5),  
+        ( 10.0,  5.5,  1.0),  
+        (-8.0,   5.5,  5.5),  
     ],
 }
 
@@ -88,11 +57,6 @@ def signal_handler(sig, frame):
     global running
     running = False
     print("\n  ⛔ Interruption reçue...")
-
-
-# ============================================================
-# Fonctions drone (identiques au 08 original)
-# ============================================================
 
 def connect_drone(instance, timeout=30):
     port = 5760 + instance * 10
@@ -180,15 +144,15 @@ def wait_altitude(conn, target_alt, tolerance=1.0, timeout=30):
 def goto_local(conn, x, y, z):
     """Envoyer le drone vers une position locale (NED frame)."""
     conn.mav.set_position_target_local_ned_send(
-        0,                                          # time_boot_ms
+        0,                                         
         conn.target_system,
         conn.target_component,
         mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-        0b0000111111111000,                         # type_mask: positions only
-        x, y, -z,                                   # NED: z inversé
-        0, 0, 0,                                    # velocity
-        0, 0, 0,                                    # acceleration
-        0, 0                                        # yaw, yaw_rate
+        0b0000111111111000,                        
+        x, y, -z,                                  
+        0, 0, 0,                                   
+        0, 0, 0,                                   
+        0, 0                                       
     )
 
 
@@ -211,9 +175,6 @@ def write_positions_csv(connections):
     return "  ".join(parts)
 
 
-# ============================================================
-# Boucle de navigation vers un waypoint
-# ============================================================
 
 def navigate_to_waypoint(connections, targets, tolerance=3.0, timeout=6):
     """Envoie tous les drones vers leurs waypoints.
@@ -221,7 +182,6 @@ def navigate_to_waypoint(connections, targets, tolerance=3.0, timeout=6):
     Re-envoie la commande goto toutes les 1s pour garder le mouvement."""
     t0 = time.time()
     while time.time() - t0 < timeout and running:
-        # Re-envoyer goto à chaque itération pour maintenir le mouvement
         for i, conn in enumerate(connections):
             if i in targets:
                 x, y, z = targets[i]
@@ -244,13 +204,9 @@ def navigate_to_waypoint(connections, targets, tolerance=3.0, timeout=6):
         if all_reached:
             return True
 
-    # Timeout — on passe au WP suivant, le drone est EN MOUVEMENT
     return False
 
 
-# ============================================================
-# Programme principal
-# ============================================================
 
 def main():
     parser = argparse.ArgumentParser(
@@ -264,7 +220,7 @@ def main():
                         help='Nombre de boucles de patrouille (défaut: 2)')
     args = parser.parse_args()
 
-    n_drones = min(args.drones, 3)  # max 3 waypoint sets
+    n_drones = min(args.drones, 3)
     signal.signal(signal.SIGINT, signal_handler)
 
     W = 70
@@ -276,7 +232,6 @@ def main():
     print("└" + "─" * (W - 2) + "┘")
     print()
 
-    # ── Connexion ──
     print(f"[1/6] Connexion aux {n_drones} drones...")
     connections = []
     for i in range(n_drones):
@@ -291,7 +246,6 @@ def main():
     for conn in connections:
         request_data_streams(conn)
 
-    # ── EKF ──
     print(f"[2/6] Attente calibration EKF ({args.ekf_wait}s)...")
     for s in range(args.ekf_wait, 0, -1):
         sys.stdout.write(f"\r  {s}s...")
@@ -299,14 +253,12 @@ def main():
         time.sleep(1)
     print("\r  => EKF prêt !\n")
 
-    # ── GUIDED ──
     print("[3/6] Mode GUIDED...")
     for i, conn in enumerate(connections):
         ok = set_mode(conn, MODE_GUIDED)
         print(f"  Drone {i} : {'GUIDED' if ok else 'TIMEOUT'}")
     print()
 
-    # ── ARM ──
     print("[4/6] Armement...")
     for i, conn in enumerate(connections):
         ok = arm_drone(conn, timeout=15)
@@ -317,7 +269,6 @@ def main():
             print(f"  Drone {i} (retry) : {'ARMED' if ok else 'ECHEC'}")
     print()
 
-    # ── Takeoff ──
     print("[5/6] Décollage...")
     target_alts = []
     for i, conn in enumerate(connections):
@@ -341,9 +292,6 @@ def main():
             break
     print()
 
-    # ══════════════════════════════════════════════════════════
-    # [6/6] PATROUILLE DYNAMIQUE
-    # ══════════════════════════════════════════════════════════
     print("[6/6] ═══ DÉBUT DE LA PATROUILLE ═══")
     print(f"  {args.loops} boucles × {len(WAYPOINTS[0])} waypoints")
     print(f"  Max 6s/WP — mouvement continu, jamais figé !")
@@ -361,7 +309,6 @@ def main():
             if not running:
                 break
 
-            # Construire les cibles pour ce waypoint
             targets = {}
             descriptions = []
             for i in range(n_drones):
@@ -373,15 +320,11 @@ def main():
             print(f"  │")
             print(f"  ├─ WP {wp_idx + 1}/{total_wps}: {' · '.join(descriptions)}")
 
-            # Naviguer (max 6s puis on enchaîne — le drone bouge en continu)
             navigate_to_waypoint(connections, targets, tolerance=3.0, timeout=6)
 
         print(f"  └── Boucle {loop + 1} terminée")
         print()
 
-    # ══════════════════════════════════════════════════════════
-    # Atterrissage
-    # ══════════════════════════════════════════════════════════
     print("ATTERRISSAGE...")
     for i, conn in enumerate(connections):
         set_mode(conn, MODE_LAND)

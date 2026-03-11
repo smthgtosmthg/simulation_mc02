@@ -58,7 +58,7 @@ int main(int argc, char* argv[])
     double frequency  = 3.5e9;
     double bw         = 20e6;
     double gnbX=0, gnbY=0, gnbZ=6;
-    uint32_t seed = 0; // 0 = auto (time-based)
+    uint32_t seed = 0;
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("posFile","CSV positions",posFile);
@@ -71,7 +71,6 @@ int main(int argc, char* argv[])
     cmd.AddValue("seed","RNG seed (0=auto)",seed);
     cmd.Parse(argc, argv);
 
-    // Seed aleatoire pour varier les resultats entre chaque run
     if (seed == 0) seed = static_cast<uint32_t>(std::time(nullptr)) % 100000;
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(seed);
@@ -196,7 +195,7 @@ int main(int argc, char* argv[])
     Simulator::Stop(simTime);
     Simulator::Run();
 
-    // 9. RSSI (lien UE<->gNB, modele 3GPP TR 38.901, shadowing active)
+    // 9. RSSI 
     auto plModel = CreateObject<ThreeGppIndoorOfficePropagationLossModel>();
     plModel->SetAttribute("Frequency", DoubleValue(frequency));
     plModel->SetAttribute("ShadowingEnabled", BooleanValue(true));
@@ -230,7 +229,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // 11. CSV + console
     std::ofstream out(outFile);
     out << "drone_a,drone_b,rssi_a_dBm,rssi_b_dBm,latency_ms,jitter_ms,dist_ab_m,rx_packets\n";
 

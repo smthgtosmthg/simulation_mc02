@@ -1,38 +1,4 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
-/*
- * drone-wifi-scenario.cc
- *
- * Scénario NS-3 : N drones communiquant via WiFi Ad-Hoc
- * Supporte le canal NS3-Sionna pour RSSI/latence réalistes
- *
- * Ce programme :
- *   1. Lit les positions des drones depuis un fichier CSV (temps réel)
- *   2. Simule un réseau WiFi Ad-Hoc entre les drones
- *   3. Calcule le RSSI via CalcRxPower() du modèle de propagation NS-3
- *   4. Mesure la latence réelle via FlowMonitor (pas d'estimation fixe)
- *   5. Écrit les résultats dans un fichier CSV de sortie
- *
- * Amélioration par rapport à l'ancienne version :
- *   - RSSI calculé par le modèle de propagation NS-3 (pas de log10 manuel)
- *   - Latence mesurée sur les flux réels (pas de 2ms fixe)
- *   - Support NS3-Sionna (ray-tracing) via --channelModel=sionna
- *
- * Compilation (depuis le répertoire ns-3.40) :
- *   cp drone-wifi-scenario.cc scratch/
- *   ./ns3 build
- *
- * Exécution :
- *   ./ns3 run "scratch/drone-wifi-scenario
- *     --nDrones=3
- *     --posFile=/tmp/drone_positions.csv
- *     --outFile=/tmp/ns3_output.csv
- *     --simTime=60
- *     --channelModel=log-distance"
- *
- * Avec NS3-Sionna (serveur Sionna requis) :
- *   ./ns3 run "scratch/drone-wifi-scenario
- *     --nDrones=3 --channelModel=sionna"
- */
 
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
@@ -43,11 +9,7 @@
 #include "ns3/flow-monitor-module.h"
 #include "ns3/propagation-module.h"
 
-/*
- * NS3-Sionna (optionnel).
- * Si ns3sionna est compilé dans contrib/sionna, garder le #define.
- * Sinon, commenter la ligne pour désactiver.
- */
+
 #define NS3_SIONNA_AVAILABLE
 #ifdef NS3_SIONNA_AVAILABLE
 #include "ns3/sionna-helper.h"
@@ -69,41 +31,34 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("DroneWifiScenario");
 
-// ============================================================
-// Globals
-// ============================================================
 
 static uint32_t g_nDrones = 3;
 static std::string g_posFile = "/tmp/drone_positions.csv";
 static std::string g_outFile = "/tmp/ns3_output.csv";
 static double g_simTime = 60.0;
 static double g_updateInterval = 0.5;
-static std::string g_channelModel = "log-distance";  // ou "sionna"
-static std::string g_sionnaEnv = "simple_room/simple_room.xml"; // scène Sionna
-static std::string g_sionnaUrl = "tcp://localhost:5555";        // serveur Sionna
+static std::string g_channelModel = "log-distance";
+static std::string g_sionnaEnv = "simple_room/simple_room.xml"; 
+static std::string g_sionnaUrl = "tcp://localhost:5555";      
 
 static NodeContainer g_droneNodes;
 static NetDeviceContainer g_wifiDevices;
 static std::ofstream g_outputCsv;
 
-// === Clés pour le RSSI et la latence réels ===
-static Ptr<PropagationLossModel> g_propLossModel;    // CalcRxPower()
-static double g_txPowerDbm = 20.0;                   // Puissance d'émission
-static Ptr<FlowMonitor> g_flowMonitor;               // Latence réelle
-static Ptr<Ipv4FlowClassifier> g_flowClassifier;     // Mapping flux → IPs
+//  Clés pour le RSSI et la latence 
+static Ptr<PropagationLossModel> g_propLossModel;    
+static double g_txPowerDbm = 20.0;                  
+static Ptr<FlowMonitor> g_flowMonitor;              
+static Ptr<Ipv4FlowClassifier> g_flowClassifier;    
 
-// Stats FlowMonitor précédentes (pour le delta)
+// Stats FlowMonitor précédentes
 static FlowMonitor::FlowStatsContainer g_prevFlowStats;
 
-// Pointeur global vers SionnaHelper (utilisé si --channelModel=sionna)
+// Pointeur global vers SionnaHelper 
 #ifdef NS3_SIONNA_AVAILABLE
 static SionnaHelper* g_sionnaHelper = nullptr;
 #endif
 
-// ============================================================
-// Helper: Read drone positions from CSV
-// Format: drone_id,x,y,z (one line per drone)
-// ============================================================
 struct DronePos {
     double x, y, z;
 };
@@ -119,9 +74,7 @@ ReadPositions(const std::string& filename, uint32_t nDrones)
     }
 
     std::string line;
-    // Skip header
     if (std::getline(file, line)) {
-        // header line
     }
 
     while (std::getline(file, line)) {
@@ -142,10 +95,8 @@ ReadPositions(const std::string& filename, uint32_t nDrones)
     return positions;
 }
 
-// ============================================================
 // Extraction de la latence par paire depuis le FlowMonitor
 // Utilise le delta (paquets récents) pas la moyenne cumulative
-// ============================================================
 static std::map<std::pair<uint32_t, uint32_t>, double>
 GetPairLatencies(void)
 {
@@ -200,13 +151,11 @@ GetPairLatencies(void)
     return result;
 }
 
-// ============================================================
 // Mise à jour des positions + calcul RSSI/latence
-// ============================================================
 static void
 UpdatePositions(void)
 {
-    // 1. Lire les positions depuis le CSV (mis à jour par le bridge)
+    // 1. Lire les positions depuis le CSV 
     std::vector<DronePos> positions = ReadPositions(g_posFile, g_nDrones);
 
     // 2. Mettre à jour les modèles de mobilité NS-3
@@ -231,9 +180,7 @@ UpdatePositions(void)
             double dz = positions[i].z - positions[j].z;
             double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-            // --- RSSI via le modèle de propagation NS-3 ---
-            // CalcRxPower() utilise le modèle configuré (LogDistance OU NS3-Sionna)
-            // C'est le VRAI RSSI calculé par la couche PHY de NS-3
+          
             Ptr<MobilityModel> mob_i = g_droneNodes.Get(i)->GetObject<MobilityModel>();
             Ptr<MobilityModel> mob_j = g_droneNodes.Get(j)->GetObject<MobilityModel>();
             double rssiDbm = g_propLossModel->CalcRxPower(g_txPowerDbm, mob_i, mob_j);
@@ -243,10 +190,8 @@ UpdatePositions(void)
             auto pairKey = std::make_pair(i, j);
             auto latIt = pairLatencies.find(pairKey);
             if (latIt != pairLatencies.end() && latIt->second > 0.0) {
-                // Latence mesurée sur les vrais paquets (MAC + propagation + queue)
                 latencyMs = latIt->second;
             } else {
-                // Fallback avant l'arrivée des premiers paquets
                 double propagationMs = (distance / 3e8) * 1000.0;
                 latencyMs = propagationMs + 2.0;
             }
@@ -273,13 +218,9 @@ UpdatePositions(void)
     Simulator::Schedule(Seconds(g_updateInterval), &UpdatePositions);
 }
 
-// ============================================================
-// Main
-// ============================================================
 int
 main(int argc, char *argv[])
 {
-    // --- Arguments en ligne de commande ---
     CommandLine cmd;
     cmd.AddValue("nDrones", "Number of drones", g_nDrones);
     cmd.AddValue("posFile", "Input CSV with drone positions", g_posFile);
@@ -291,7 +232,6 @@ main(int argc, char *argv[])
     cmd.AddValue("sionnaUrl", "Sionna ZMQ server URL", g_sionnaUrl);
     cmd.Parse(argc, argv);
 
-    // *** MODE TEMPS RÉEL ***
     GlobalValue::Bind("SimulatorImplementationType",
                       StringValue("ns3::RealtimeSimulatorImpl"));
 
@@ -302,10 +242,10 @@ main(int argc, char *argv[])
     NS_LOG_INFO("Output file: " << g_outFile);
     NS_LOG_INFO("Sim time: " << g_simTime << "s (real-time)");
 
-    // --- Créer les nœuds ---
+    // Créer les nœuds 
     g_droneNodes.Create(g_nDrones);
 
-    // --- WiFi (Ad-Hoc, 802.11n à 2.4GHz) ---
+    //  WiFi 
     WifiHelper wifi;
     wifi.SetStandard(WIFI_STANDARD_80211n);
     wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager",
@@ -317,11 +257,7 @@ main(int argc, char *argv[])
     wifiPhy.Set("TxPowerStart", DoubleValue(g_txPowerDbm));
     wifiPhy.Set("TxPowerEnd", DoubleValue(g_txPowerDbm));
 
-    // ============================================================
-    // Configuration du canal — PARTIE CLÉ
-    // Le modèle de propagation détermine le RSSI pour chaque paire.
-    // On garde une référence pour appeler CalcRxPower() directement.
-    // ============================================================
+    
     Ptr<YansWifiChannel> wifiChannel = CreateObject<YansWifiChannel>();
 
     // Modèle de délai de propagation
@@ -329,34 +265,17 @@ main(int argc, char *argv[])
         CreateObject<ConstantSpeedPropagationDelayModel>();
     wifiChannel->SetPropagationDelayModel(delayModel);
 
-    // Modèle de perte de propagation (détermine le RSSI)
+    // Modèle de perte de propagation 
     if (g_channelModel == "sionna") {
 #ifdef NS3_SIONNA_AVAILABLE
-        // ====================================================
-        // NS3-Sionna : canal ray-tracing réaliste
-        //
-        // Séquence d'initialisation (d'après example-sionna.cc) :
-        //   1. SionnaHelper(scene, zmq_url)
-        //   2. SionnaPropagationCache → SetSionnaHelper()
-        //   3. SionnaPropagationLossModel → SetPropagationCache()
-        //   4. SionnaPropagationDelayModel → SetPropagationCache()
-        //   5. Attacher au channel
-        //   6. Après Install(), appeler sionnaHelper.Configure() et Start()
-        //
-        // Nécessite le serveur Python Sionna en cours :
-        //   cd contrib/sionna/model/ns3sionna
-        //   source sionna-venv/bin/activate && python3 run_server.py
-        // ====================================================
+        
         NS_LOG_INFO("*** Utilisation de NS3-Sionna (ray-tracing) ***");
         NS_LOG_INFO("Scène Sionna : " << g_sionnaEnv);
         NS_LOG_INFO("Serveur ZMQ  : " << g_sionnaUrl);
 
         g_sionnaHelper = new SionnaHelper(g_sionnaEnv, g_sionnaUrl);
 
-        // Mode P2P (mode 1) : calcul CSI pour chaque paire indépendamment.
-        // MODE_P2MP_LAH (mode 3, défaut) plante quand sub_mode < nDrones-1,
-        // car look_ahead = floor(sub_mode / (nRx)) = 0 → aucun RX placé.
-        // P2P est plus stable et suffisant pour notre cas (RSSI + latence).
+       
         g_sionnaHelper->SetMode(SionnaHelper::MODE_P2P);
 
         Ptr<SionnaPropagationCache> propagationCache =
@@ -367,7 +286,6 @@ main(int argc, char *argv[])
         Ptr<SionnaPropagationDelayModel> sionnaDelay =
             CreateObject<SionnaPropagationDelayModel>();
         sionnaDelay->SetPropagationCache(propagationCache);
-        // Remplacer le delay model par celui de Sionna
         wifiChannel->SetPropagationDelayModel(sionnaDelay);
 
         Ptr<SionnaPropagationLossModel> sionnaLoss =
@@ -385,8 +303,6 @@ main(int argc, char *argv[])
         g_propLossModel = lossModel;
 #endif
     } else {
-        // Log-Distance (indoor warehouse)
-        // Exponent=3.0 (indoor typique), ReferenceLoss=40dB (2.4GHz à 1m)
         NS_LOG_INFO("Modèle Log-Distance (indoor warehouse)");
         Ptr<LogDistancePropagationLossModel> lossModel =
             CreateObject<LogDistancePropagationLossModel>();
@@ -398,13 +314,11 @@ main(int argc, char *argv[])
     wifiChannel->SetPropagationLossModel(g_propLossModel);
     wifiPhy.SetChannel(wifiChannel);
 
-    // MAC (Ad-Hoc pour réseau de drones)
     WifiMacHelper wifiMac;
     wifiMac.SetType("ns3::AdhocWifiMac");
 
     g_wifiDevices = wifi.Install(wifiPhy, wifiMac, g_droneNodes);
 
-    // --- Pile Internet ---
     InternetStackHelper internet;
     internet.Install(g_droneNodes);
 
@@ -412,11 +326,10 @@ main(int argc, char *argv[])
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     ipv4.Assign(g_wifiDevices);
 
-    // --- Mobilité (positions lues depuis le CSV) ---
+    // positions lues depuis le CSV
     MobilityHelper mobility;
 #ifdef NS3_SIONNA_AVAILABLE
     if (g_channelModel == "sionna") {
-        // NS3-Sionna EXIGE SionnaMobilityModel (DynamicCast interne)
         // On utilise le mode "constant position" de Sionna
         mobility.SetMobilityModel("ns3::SionnaMobilityModel");
     } else {
@@ -435,10 +348,7 @@ main(int argc, char *argv[])
     }
 
 #ifdef NS3_SIONNA_AVAILABLE
-    // --- Configurer et démarrer Sionna ---
-    // IMPORTANT : Start() doit être appelé APRÈS mobility.Install() + SetPosition()
-    // car Start() envoie les infos des nœuds (id, position, mobilité) au serveur.
-    // Si appelé avant, le serveur ne connaît aucun nœud → KeyError.
+   
     if (g_channelModel == "sionna" && g_sionnaHelper != nullptr) {
         double channelWidth = get_channel_width(g_wifiDevices.Get(0));
         int centerFreq = (int)get_center_freq(g_wifiDevices.Get(0));
@@ -450,8 +360,6 @@ main(int argc, char *argv[])
                     << "MHz, fft=" << fftSize
                     << ", scs=" << subcarrierSpacing << "Hz");
 
-        // Pass min coherence time = 500ms so Sionna recomputes CSI
-        // frequently even when drones use ConstantPositionMobility.
         g_sionnaHelper->Configure(centerFreq, (int)channelWidth,
                                    fftSize, subcarrierSpacing, 500);
         g_sionnaHelper->Start();
@@ -459,7 +367,7 @@ main(int argc, char *argv[])
     }
 #endif
 
-    // --- Trafic UDP Echo entre drones (pour mesure de latence) ---
+    //  Trafic UDP Echo entre drones 
     uint16_t port = 9;
     for (uint32_t i = 0; i < g_nDrones; ++i) {
         uint32_t j = (i + 1) % g_nDrones;
@@ -476,10 +384,7 @@ main(int argc, char *argv[])
         serverApp.Start(Seconds(0.0));
         serverApp.Stop(Seconds(g_simTime));
 
-        // Client UDP Echo sur le drone source
-        // Interval must be < updateInterval (0.5s) to ensure FlowMonitor
-        // has fresh packets at every measurement tick. 0.2s → ~2-3 packets
-        // per update window, eliminating fallback to the 2.0ms constant.
+       
         UdpEchoClientHelper echoClient(dstAddr, port + j);
         echoClient.SetAttribute("MaxPackets", UintegerValue(999999));
         echoClient.SetAttribute("Interval", TimeValue(Seconds(0.1)));
@@ -490,24 +395,24 @@ main(int argc, char *argv[])
         clientApp.Stop(Seconds(g_simTime));
     }
 
-    // --- Ouvrir le CSV de sortie ---
+    //  Ouvrir le CSV de sortie 
     g_outputCsv.open(g_outFile);
     g_outputCsv << "time_s,drone_i,drone_j,distance_m,rssi_dbm,latency_ms,"
                 << "xi,yi,zi,xj,yj,zj" << std::endl;
 
-    // --- FlowMonitor pour la VRAIE latence ---
+    //  FlowMonitor pour la  latence 
     FlowMonitorHelper flowHelper;
     g_flowMonitor = flowHelper.InstallAll();
     g_flowClassifier = DynamicCast<Ipv4FlowClassifier>(flowHelper.GetClassifier());
 
-    // --- Planifier les mises à jour de position ---
+    //  Planifier les mises à jour de position 
     Simulator::Schedule(Seconds(0.0), &UpdatePositions);
 
-    // --- Lancer la simulation ---
+    //  Lancer la simulation 
     Simulator::Stop(Seconds(g_simTime));
     Simulator::Run();
 
-    // --- Statistiques finales des flux ---
+    //  Statistiques finales des flux 
     NS_LOG_INFO("\n=== Statistiques FlowMonitor ===");
     g_flowMonitor->CheckForLostPackets();
     FlowMonitor::FlowStatsContainer stats = g_flowMonitor->GetFlowStats();
@@ -530,7 +435,6 @@ main(int argc, char *argv[])
     g_outputCsv.close();
 
 #ifdef NS3_SIONNA_AVAILABLE
-    // Nettoyage Sionna
     if (g_sionnaHelper) {
         g_sionnaHelper->Destroy();
         delete g_sionnaHelper;

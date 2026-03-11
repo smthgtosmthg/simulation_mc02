@@ -9,15 +9,10 @@ try:
     from pymavlink import mavutil
 except ImportError:
     print("ERREUR: pymavlink non installé.")
-    print("Installe avec : pip3 install pymavlink")
     sys.exit(1)
 
 
-# ============================================================
-# Constantes ArduCopter
-# ============================================================
-
-# Modes de vol ArduCopter (custom_mode IDs)
+# Modes de vol ArduCopter
 MODE_STABILIZE = 0
 MODE_ALT_HOLD = 2
 MODE_AUTO = 3
@@ -32,10 +27,7 @@ MODE_NAMES = {
 }
 
 
-# ============================================================
 # Fonctions drone
-# ============================================================
-
 def connect_drone(instance, timeout=30):
     """Connexion à une instance ArduPilot SITL."""
     port = 5760 + instance * 10
@@ -102,10 +94,10 @@ def takeoff(conn, altitude):
         conn.target_system,
         conn.target_component,
         mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-        0,              # confirmation
-        0,              # param1 : pitch (ignored for multi)
+        0,            
+        0,             
         0, 0, 0, 0, 0,
-        altitude        # param7 : altitude (m)
+        altitude       
     )
 
 
@@ -113,7 +105,7 @@ def get_altitude(conn, timeout=2):
     """Récupère l'altitude actuelle (z-up) du drone."""
     msg = conn.recv_match(type='LOCAL_POSITION_NED', blocking=True, timeout=timeout)
     if msg:
-        return -msg.z  # NED z-down → z-up
+        return -msg.z  
     return None
 
 
@@ -165,9 +157,6 @@ def write_positions_csv(connections):
     return "  ".join(parts)
 
 
-# ============================================================
-# Programme principal
-# ============================================================
 
 def main():
     parser = argparse.ArgumentParser(
@@ -196,9 +185,6 @@ def main():
     print("=" * 65)
     print()
 
-    # ============================================================
-    # Étape 1 : Connexion
-    # ============================================================
     print(f"[1/6] Connexion aux {n_drones} drones...")
     connections = []
     for i in range(n_drones):
@@ -210,13 +196,9 @@ def main():
         connections.append(conn)
     print(f"  => Tous les drones connectés !\n")
 
-    # Demander les flux de données
     for conn in connections:
         request_data_streams(conn)
 
-    # ============================================================
-    # Étape 2 : Attente EKF
-    # ============================================================
     print(f"[2/6] Attente de la calibration EKF ({args.ekf_wait}s)...")
     for s in range(args.ekf_wait, 0, -1):
         sys.stdout.write(f"\r  {s}s restantes...")
@@ -224,9 +206,6 @@ def main():
         time.sleep(1)
     print("\r  => EKF prêt !              \n")
 
-    # ============================================================
-    # Étape 3 : Mode GUIDED
-    # ============================================================
     print("[3/6] Passage en mode GUIDED...")
     for i, conn in enumerate(connections):
         success = set_mode(conn, MODE_GUIDED)
@@ -234,9 +213,6 @@ def main():
         print(f"  Drone {i} : {status}")
     print()
 
-    # ============================================================
-    # Étape 4 : Arm
-    # ============================================================
     print("[4/6] Armement des moteurs...")
     for i, conn in enumerate(connections):
         success = arm_drone(conn, timeout=15)
@@ -248,9 +224,6 @@ def main():
             print(f"  Drone {i} (retry) : {'ARMED' if success else 'ECHEC'}")
     print()
 
-    # ============================================================
-    # Étape 5 : Takeoff
-    # ============================================================
     print("[5/6] Décollage...")
     target_alts = []
     for i, conn in enumerate(connections):
@@ -280,9 +253,6 @@ def main():
             break
     print()
 
-    # ============================================================
-    # Hover avec affichage des positions
-    # ============================================================
     print(f"HOVER pendant {args.hover}s :")
     print("-" * 65)
 
@@ -292,9 +262,6 @@ def main():
         print(f"  ● t={s+1:3d}s | {pos_line}")
     print()
 
-    # ============================================================
-    # Étape 6 : Atterrissage
-    # ============================================================
     print("[6/6] Atterrissage...")
     for i, conn in enumerate(connections):
         success = set_mode(conn, MODE_LAND)
@@ -306,9 +273,8 @@ def main():
     for s in range(30):
         time.sleep(1)
         pos_line = write_positions_csv(connections)
-        if s % 5 == 4:  # afficher toutes les 5s
+        if s % 5 == 4:  
             print(f"  ↘ t={s+1:3d}s | {pos_line}")
-        # Vérifier si tous posés (alt < 0.3m)
         all_landed = True
         for conn in connections:
             alt = get_altitude(conn)
@@ -330,7 +296,6 @@ def main():
     print(f"    Hover    : {args.hover}s")
     print()
 
-    # Fermer les connexions
     for conn in connections:
         try:
             conn.close()
