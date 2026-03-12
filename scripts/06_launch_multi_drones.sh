@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 
-# Configuration
 N_DRONES=${1:-3}
-DRONE_SPACING=3       # mètres entre drones sur l'axe X
+DRONE_SPACING=3      
 
 WORKSPACE="$HOME/simulation_mc02"
 ARDUPILOT_DIR="$HOME/ardupilot"
@@ -17,9 +16,8 @@ echo "=============================================="
 echo " [6] Multi-Drones : $N_DRONES drones"
 echo "=============================================="
 
-# Vérifications
 if [ ! -d "$ARDUPILOT_DIR" ]; then
-    echo "ERREUR : ArduPilot non trouvé dans $ARDUPILOT_DIR"
+    echo "ERREUR : ArudPilot non trouvé dans $ARDUPILOT_DIR"
     echo "Lance d'abord le script 03_install_px4_sitl.sh"
     exit 1
 fi
@@ -38,7 +36,6 @@ fi
 
 mkdir -p "$MODELS_DIR" "$WORLDS_DIR"
 
-# Nettoyage des anciens processus
 echo ""
 echo "Nettoyage des anciens processus..."
 pkill -f arducopter 2>/dev/null || true
@@ -47,19 +44,15 @@ pkill -f mavproxy 2>/dev/null || true
 pkill -f sim_vehicle 2>/dev/null || true
 sleep 2
 
-# ============================================================
-# Variables d'environnement
-# ============================================================
 export GZ_SIM_SYSTEM_PLUGIN_PATH=$PLUGIN_DIR/build:$GZ_SIM_SYSTEM_PLUGIN_PATH
 export GZ_SIM_RESOURCE_PATH=$MODELS_DIR:$PLUGIN_DIR/models:$PLUGIN_DIR/worlds:$WORKSPACE/worlds:$GZ_SIM_RESOURCE_PATH
 
-# Forcer le driver EGL NVIDIA pour éviter les warnings libEGL "Permission denied"
+# Forcer le driver EGL NVIDIA pour éviter les warnings libEGL
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
 export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
 
-# Auto-détection du display X11 (corrige DISPLAY invalide, ex. :10 via SSH)
+# Auto-détection du display X11 
 if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
-    # Chercher un display actif dans /tmp/.X11-unix/
     for sock in /tmp/.X11-unix/X*; do
         d=":${sock##*/tmp/.X11-unix/X}"
         if xdpyinfo -display "$d" >/dev/null 2>&1; then
@@ -70,9 +63,7 @@ if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
     done
 fi
 
-# ============================================================
-# Créer les copies du modèle iris (ports uniques)
-# ============================================================
+# Créer les copies du modèle iris 
 echo ""
 echo "Création des modèles iris pour $N_DRONES drones..."
 
@@ -98,13 +89,10 @@ for i in $(seq 0 $((N_DRONES - 1))); do
     echo "  Drone $i : $MODEL_NAME (fdm_in=$PORT_IN, fdm_out=$PORT_OUT)"
 done
 
-# ============================================================
 # Générer le monde SDF : Warehouse + N drones
-# ============================================================
 echo ""
 echo "Génération du monde warehouse_drones.sdf ($N_DRONES drones)..."
 
-# --- En-tête du monde ---
 cat > "$GENERATED_WORLD" << 'HEADER'
 <?xml version="1.0" ?>
 <sdf version="1.9">
@@ -308,7 +296,6 @@ cat > "$GENERATED_WORLD" << 'HEADER'
 HEADER
 
 # --- Ajouter les drones ---
-# Calculer la position X de départ pour centrer les drones
 START_X=$(echo "scale=2; -(($N_DRONES - 1) * $DRONE_SPACING) / 2" | bc)
 
 echo "  Positions des drones (espacement ${DRONE_SPACING}m) :"
@@ -328,7 +315,6 @@ for i in $(seq 0 $((N_DRONES - 1))); do
 EOF
 done
 
-# --- Fermer le SDF ---
 cat >> "$GENERATED_WORLD" << 'FOOTER'
 
   </world>
@@ -338,9 +324,6 @@ FOOTER
 echo ""
 echo "==> Monde généré : $GENERATED_WORLD"
 
-# ============================================================
-# Mode rendering
-# ============================================================
 echo ""
 echo "Options de rendering :"
 echo "  1) Avec rendering (fenêtre Gazebo) — GPU requis"
@@ -356,9 +339,6 @@ else
     GZ_HEADLESS=""
 fi
 
-# ============================================================
-# Trap pour nettoyage propre (Ctrl+C)
-# ============================================================
 PIDS=()
 
 cleanup() {
@@ -379,9 +359,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# ============================================================
 # Lancer Gazebo
-# ============================================================
 echo ""
 echo "==> Lancement de Gazebo avec $N_DRONES drones dans le warehouse..."
 echo ""
@@ -392,17 +370,14 @@ PIDS+=($!)
 echo "Attente du démarrage de Gazebo (15s)..."
 sleep 15
 
-# ============================================================
 # Lancer les instances ArduPilot SITL
-# ============================================================
 echo ""
 echo "==> Lancement de $N_DRONES instances ArduPilot SITL..."
 echo ""
 
-# Aller dans le répertoire ArduPilot
 cd "$ARDUPILOT_DIR"
 
-# Charger le profil ArduPilot si disponible
+# Charger le profil ArduPilot
 . ~/.profile 2>/dev/null || true
 
 for i in $(seq 0 $((N_DRONES - 1))); do
@@ -419,7 +394,6 @@ for i in $(seq 0 $((N_DRONES - 1))); do
         > /dev/null 2>&1 &
     PIDS+=($!)
 
-    # Attendre entre chaque lancement pour éviter les conflits
     sleep 8
 done
 
@@ -438,16 +412,5 @@ for i in $(seq 0 $((N_DRONES - 1))); do
 done
 echo "  └──────────┴──────────────────────────────┘"
 echo ""
-echo "  DANS UN AUTRE TERMINAL :"
-echo ""
-echo "  Tracker les positions :"
-echo "    python3 $WORKSPACE/scripts/07_track_positions.py --drones $N_DRONES"
-echo ""
-echo "  Vol automatique :"
-echo "    python3 $WORKSPACE/scripts/08_multi_drone_flight.py --drones $N_DRONES"
-echo ""
-echo "  Ctrl+C pour arrêter tout."
-echo ""
 
-# Attendre indéfiniment (les processus tournent en arrière-plan)
 wait
