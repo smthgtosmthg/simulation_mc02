@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Simulation Dashboard — WiFi vs 5G NR</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ─── HEADER ─── -->
+<header class="top-bar">
+    <div class="logo">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+        <span>Drone Sim Dashboard</span>
+    </div>
+    <div class="header-center">
+        <div class="scenario-tabs">
+            <button class="tab active" data-scenario="both">Comparaison</button>
+            <button class="tab" data-scenario="wifi">WiFi 802.11n</button>
+            <button class="tab" data-scenario="5g">5G NR</button>
+        </div>
+    </div>
+    <div class="header-right">
+        <div class="status-pill" id="statusPill">
+            <span class="pulse"></span>
+            <span class="status-text">Connexion...</span>
+        </div>
+        <div class="clock" id="clock">--:--:--</div>
+    </div>
+</header>
+
+<!-- ─── MAIN ─── -->
+<main class="dashboard">
+
+    <!-- KPI CARDS ROW -->
+    <section class="kpi-row">
+        <div class="kpi-card" id="kpiDrones" data-vis="both wifi 5g">
+            <div class="kpi-icon wifi">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+            </div>
+            <div class="kpi-body">
+                <span class="kpi-value" id="valDrones">0</span>
+                <span class="kpi-label">Drones actifs</span>
+            </div>
+        </div>
+        <div class="kpi-card" id="kpiRssiWifi" data-vis="both wifi">
+            <div class="kpi-icon wifi">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+            </div>
+            <div class="kpi-body">
+                <span class="kpi-value" id="valRssiWifi">-- dBm</span>
+                <span class="kpi-label">RSSI WiFi (moy.)</span>
+            </div>
+        </div>
+        <div class="kpi-card" id="kpiRssi5g" data-vis="both 5g">
+            <div class="kpi-icon fiveg">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="14" width="3" height="7" rx="1"/><rect x="7" y="10" width="3" height="11" rx="1"/><rect x="12" y="6" width="3" height="15" rx="1"/><rect x="17" y="2" width="3" height="19" rx="1"/></svg>
+            </div>
+            <div class="kpi-body">
+                <span class="kpi-value" id="valRssi5g">-- dBm</span>
+                <span class="kpi-label">RSSI 5G→gNB (moy.)</span>
+            </div>
+        </div>
+        <div class="kpi-card" id="kpiLatWifi" data-vis="both wifi">
+            <div class="kpi-icon wifi">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="kpi-body">
+                <span class="kpi-value" id="valLatWifi">-- ms</span>
+                <span class="kpi-label">Latence WiFi (moy.)</span>
+            </div>
+        </div>
+        <div class="kpi-card" id="kpiLat5g" data-vis="both 5g">
+            <div class="kpi-icon fiveg">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="kpi-body">
+                <span class="kpi-value" id="valLat5g">-- ms</span>
+                <span class="kpi-label">Latence 5G (moy.)</span>
+            </div>
+        </div>
+        <div class="kpi-card" id="kpiTick" data-vis="both wifi 5g">
+            <div class="kpi-icon neutral">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div class="kpi-body">
+                <span class="kpi-value" id="valTick">0</span>
+                <span class="kpi-label">Mesures (ticks)</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- CHARTS ROW 1 -->
+    <section class="charts-row" data-vis="both wifi 5g">
+        <div class="chart-card wide">
+            <div class="chart-header">
+                <h3>RSSI au cours du temps</h3>
+                <div class="chart-legend" id="rssiLegend"></div>
+            </div>
+            <div class="chart-body">
+                <canvas id="chartRSSI"></canvas>
+            </div>
+        </div>
+        <div class="chart-card wide">
+            <div class="chart-header">
+                <h3>Latence au cours du temps</h3>
+                <div class="chart-legend" id="latencyLegend"></div>
+            </div>
+            <div class="chart-body">
+                <canvas id="chartLatency"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- DRONE MAP + PAIR TABLE -->
+    <section class="charts-row" data-vis="both wifi 5g">
+        <div class="chart-card" data-vis="both wifi 5g">
+            <div class="chart-header">
+                <h3>Positions des drones</h3>
+                <span class="badge">Vue 2D — Warehouse</span>
+            </div>
+            <div class="chart-body map-body">
+                <canvas id="canvasMap"></canvas>
+            </div>
+        </div>
+        <div class="chart-card" data-vis="both wifi">
+            <div class="chart-header">
+                <h3>Détails par paire — WiFi</h3>
+                <span class="badge wifi-badge">802.11n Ad-Hoc</span>
+            </div>
+            <div class="chart-body table-body">
+                <table class="pair-table" id="tableWifi">
+                    <thead>
+                        <tr><th>Paire</th><th>RSSI</th><th>Latence</th><th>Dist.</th><th>Qualité</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="chart-card" data-vis="both 5g">
+            <div class="chart-header">
+                <h3>Détails par drone — 5G NR</h3>
+                <span class="badge fiveg-badge">3.5 GHz · gNB</span>
+            </div>
+            <div class="chart-body table-body">
+                <table class="pair-table" id="table5g">
+                    <thead>
+                        <tr><th>Drone</th><th>RSSI→gNB</th><th>Latence</th><th>Jitter</th><th>Qualité</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- CHARTS ROW 2 — Comparison bar charts -->
+    <section class="charts-row" data-vis="both">
+        <div class="chart-card" data-vis="both">
+            <div class="chart-header">
+                <h3>Comparaison RSSI — WiFi vs 5G</h3>
+            </div>
+            <div class="chart-body">
+                <canvas id="chartCompareRSSI"></canvas>
+            </div>
+        </div>
+        <div class="chart-card" data-vis="both">
+            <div class="chart-header">
+                <h3>Comparaison Latence — WiFi vs 5G</h3>
+            </div>
+            <div class="chart-body">
+                <canvas id="chartCompareLatency"></canvas>
+            </div>
+        </div>
+        <div class="chart-card" data-vis="both wifi 5g">
+            <div class="chart-header">
+                <h3>Distance entre paires</h3>
+            </div>
+            <div class="chart-body">
+                <canvas id="chartDistance"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- LOG -->
+    <section class="log-section">
+        <div class="chart-card full">
+            <div class="chart-header">
+                <h3>Journal d'événements</h3>
+                <button class="btn-clear" id="btnClearLog">Effacer</button>
+            </div>
+            <div class="log-body" id="logBody">
+                <div class="log-entry info">Dashboard initialisé — en attente de données...</div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

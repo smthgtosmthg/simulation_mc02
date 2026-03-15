@@ -86,6 +86,9 @@ for i in $(seq 0 $((N_DRONES - 1))); do
     # Mettre à jour le nom dans model.config
     sed -i "s|<name>[^<]*</name>|<name>$MODEL_NAME</name>|" "$MODEL_DEST/model.config"
 
+    # Injecter capteurs LIDAR + Caméra
+    python3 "$WORKSPACE/exploration/inject_sensors.py" "$MODEL_DEST/model.sdf" $i
+
     echo "  Drone $i : $MODEL_NAME (fdm_in=$PORT_IN, fdm_out=$PORT_OUT)"
 done
 
