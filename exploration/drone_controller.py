@@ -12,14 +12,6 @@ from pymavlink import mavutil
 MODE_GUIDED = 4
 MODE_LAND = 9
 
-# ── NED ↔ Gazebo frame conversion ──────────────────────────────────
-# ArduPilot uses NED (North-East-Down). Gazebo uses its own XYZ frame.
-# From gazeboXYZToNED: roll=180° pitch=0° yaw=90°
-#   => NED_X = Gazebo_Y,  NED_Y = Gazebo_X,  NED_Z = -Gazebo_Z
-#
-# So to convert:
-#   Gazebo (gx, gy) → NED (gy, gx)
-#   NED (nx, ny)    → Gazebo (ny, nx)
 
 def ned_to_world(nx, ny, nz=0):
     """NED position → Gazebo world position."""

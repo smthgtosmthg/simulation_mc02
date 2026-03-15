@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Inject LIDAR 2D and RGB camera sensors into an iris model.sdf.
-
-Usage:
-    python3 inject_sensors.py <model.sdf path> <drone instance number>
-
-Called automatically by 06_launch_multi_drones.sh after copying each model.
-"""
 
 import sys
 

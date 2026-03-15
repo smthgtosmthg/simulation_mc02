@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-Real LIDAR reader from Gazebo Harmonic.
 
-Reads actual gpu_lidar scan data from Gazebo topics using `gz topic`.
-Each drone publishes on /drone_{id}/lidar.
-
-A background thread per drone continuously reads scan messages
-and stores the latest one. The main loop calls get_scan() to grab it.
-"""
 
 import math
 import subprocess
@@ -16,12 +8,11 @@ import time
 
 
 class LidarReader:
-    """Background reader for one drone's LIDAR Gazebo topic."""
 
     def __init__(self, drone_id):
         self.drone_id = drone_id
         self.topic = f"/drone_{drone_id}/lidar"
-        self._polar = None        # latest: list of (range, angle, is_hit)
+        self._polar = None       
         self._lock = threading.Lock()
         self._running = False
         self._thread = None
@@ -39,7 +30,6 @@ class LidarReader:
         with self._lock:
             return self._polar
 
-    # ── background loop ────────────────────────────────────────────
 
     def _read_loop(self):
         while self._running:
@@ -66,25 +56,13 @@ class LidarReader:
             return None
 
 
-# ── parsing ────────────────────────────────────────────────────────
 
 def _parse_gz_scan(raw_text):
     """
-    Parse `gz topic -e` protobuf text output for LaserScan.
+    Parse `gz topic -e`  text output for LaserScan.
 
-    Example output:
-        angle_min: -3.14159
-        angle_max: 3.14159
-        angle_step: 0.017453
-        range_min: 0.1
-        range_max: 10
-        count: 360
-        ranges: 4.2
-        ranges: 4.1
-        ranges: inf
-        ...
 
-    Returns: list of (range, angle, is_hit)
+    Returns: list of (range, angle, is_hit)==> points polaires
     """
     angle_min = None
     angle_step = None
@@ -118,7 +96,6 @@ def _parse_gz_scan(raw_text):
     return polar
 
 
-# ── conversion ─────────────────────────────────────────────────────
 
 def polar_to_cartesian(polar_scan, drone_x, drone_y, drone_yaw=0.0):
     """

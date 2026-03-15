@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-Visualize the belief map as PNG image and CSV file.
 
-Colors:
-  - Gray  = unknown
-  - White = free
-  - Black = occupied
-  - Colored dots = drone positions
-"""
 
 import numpy as np
 
@@ -19,18 +11,7 @@ def save_map_csv(grid_map, filepath="/tmp/belief_map.csv"):
 
 def save_map_png(grid_map, drone_positions=None, grid=None,
                  filepath="/tmp/belief_map.png"):
-    """
-    Save map as image. Uses PIL if available, otherwise PPM fallback.
-
-    Args:
-        grid_map:        2D array (0=free, 100=occupied, -1=unknown)
-        drone_positions: dict {drone_id: (world_x, world_y)} or None
-        grid:            OccupancyGrid for coordinate conversion
-        filepath:        output path
-
-    Returns:
-        actual filepath used (may differ if PIL missing)
-    """
+ 
     rows, cols = grid_map.shape
 
     # Build RGB image

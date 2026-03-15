@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Bayesian fusion of multiple drone occupancy grids.
-
-Each drone maintains its own local grid (log-odds).
-The fused belief map is the sum of all log-odds grids:
-
-    L_fused(x,y) = L_0(x,y) + L_1(x,y) + ... + L_{N-1}(x,y)
-
-This is mathematically correct because our prior L_prior = 0.
-"""
 
 import numpy as np
 from occupancy_grid import OccupancyGrid
