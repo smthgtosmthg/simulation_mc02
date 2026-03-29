@@ -6,6 +6,8 @@ DRONE_SPACING=3
 
 WORKSPACE="$HOME/simulation_mc02"
 ARDUPILOT_DIR="$HOME/ardupilot"
+SIM_VEHICLE_SCRIPT="$ARDUPILOT_DIR/Tools/autotest/sim_vehicle.py"
+SIM_VEHICLE_PYTHON="${SIM_VEHICLE_PYTHON:-/usr/bin/python3}"
 PLUGIN_DIR="$HOME/ardupilot_gazebo"
 IRIS_MODEL_SRC="$PLUGIN_DIR/models/iris_with_ardupilot"
 MODELS_DIR="$WORKSPACE/models"
@@ -20,6 +22,18 @@ if [ ! -d "$ARDUPILOT_DIR" ]; then
     echo "ERREUR : ArudPilot non trouvé dans $ARDUPILOT_DIR"
     echo "Lance d'abord le script 03_install_px4_sitl.sh"
     exit 1
+fi
+
+if [ ! -f "$SIM_VEHICLE_SCRIPT" ]; then
+  echo "ERREUR : sim_vehicle.py non trouvé dans $SIM_VEHICLE_SCRIPT"
+  echo "Vérifie l'installation ArduPilot SITL (script 03_install_ardupilot_sitl.sh)."
+  exit 1
+fi
+
+if ! command -v "$SIM_VEHICLE_PYTHON" >/dev/null 2>&1; then
+  echo "ERREUR : interpréteur Python introuvable : $SIM_VEHICLE_PYTHON"
+  echo "Définis SIM_VEHICLE_PYTHON ou vérifie ton installation système."
+  exit 1
 fi
 
 if [ ! -d "$IRIS_MODEL_SRC" ]; then
@@ -86,10 +100,61 @@ for i in $(seq 0 $((N_DRONES - 1))); do
     # Mettre à jour le nom dans model.config
     sed -i "s|<name>[^<]*</name>|<name>$MODEL_NAME</name>|" "$MODEL_DEST/model.config"
 
-    # Injecter capteurs LIDAR + Caméra
-    python3 "$WORKSPACE/exploration/inject_sensors.py" "$MODEL_DEST/model.sdf" $i
+    # Injecter le capteur LiDAR (gpu_lidar) pour l'exploration
+    python3 -c "
+sdf = open('$MODEL_DEST/model.sdf').read()
+lidar = '''
+    <!-- LiDAR sensor for exploration -->
+    <link name=\"lidar_link\">
+      <pose>0 0 0.05 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz>
+        </inertia>
+      </inertial>
+      <visual name=\"lidar_visual\">
+        <geometry><cylinder><radius>0.02</radius><length>0.04</length></cylinder></geometry>
+        <material><ambient>1 0 0 1</ambient><diffuse>1 0 0 1</diffuse></material>
+      </visual>
+      <sensor name=\"lidar\" type=\"gpu_lidar\">
+        <always_on>true</always_on>
+        <update_rate>5</update_rate>
+        <visualize>false</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159265</min_angle>
+              <max_angle>3.14159265</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.08</min>
+            <max>10.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name=\"lidar_joint\" type=\"fixed\">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>lidar_link</child>
+    </joint>
+'''
+if 'lidar_link' not in sdf:
+    sdf = sdf.replace('  </model>\n</sdf>', lidar + '\n  </model>\n</sdf>')
+    open('$MODEL_DEST/model.sdf', 'w').write(sdf)
+"
 
-    echo "  Drone $i : $MODEL_NAME (fdm_in=$PORT_IN, fdm_out=$PORT_OUT)"
+    echo "  Drone $i : $MODEL_NAME (fdm_in=$PORT_IN, fdm_out=$PORT_OUT, +LiDAR)"
 done
 
 # Générer le monde SDF : Warehouse + N drones
@@ -382,22 +447,35 @@ cd "$ARDUPILOT_DIR"
 
 # Charger le profil ArduPilot
 . ~/.profile 2>/dev/null || true
+. ~/.bashrc 2>/dev/null || true
 
 for i in $(seq 0 $((N_DRONES - 1))); do
     MAVLINK_PORT=$((5760 + i * 10))
-    echo "  Drone $i : sim_vehicle.py -I $i → MAVLink tcp:127.0.0.1:$MAVLINK_PORT"
+  LOG_FILE="/tmp/arducopter_${i}.log"
+  echo "  Drone $i : $SIM_VEHICLE_PYTHON $SIM_VEHICLE_SCRIPT -I $i → MAVLink tcp:127.0.0.1:$MAVLINK_PORT"
 
-    sim_vehicle.py \
+  "$SIM_VEHICLE_PYTHON" "$SIM_VEHICLE_SCRIPT" \
         -v ArduCopter \
         -f gazebo-iris \
         --model JSON \
         -I $i \
         --no-mavproxy \
         --no-rebuild \
-        > /dev/null 2>&1 &
-    PIDS+=($!)
+    > "$LOG_FILE" 2>&1 &
+  SITL_PID=$!
+  PIDS+=($SITL_PID)
 
-    sleep 8
+  sleep 5
+
+  if ! kill -0 "$SITL_PID" 2>/dev/null; then
+    echo ""
+    echo "ERREUR : l'instance SITL du drone $i a quitté immédiatement."
+    echo "Log : $LOG_FILE"
+    tail -n 40 "$LOG_FILE" 2>/dev/null || true
+    exit 1
+  fi
+
+  sleep 3
 done
 
 echo ""

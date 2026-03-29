@@ -7,20 +7,34 @@ const API = window.location.origin + '/api';
 const POLL_MS = 2000;
 const MAX_HISTORY = 120;       // keep last 120 ticks on charts
 
+// roundRect polyfill for older Chromium/Electron
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        if (w < 2 * r) r = w / 2;
+        if (h < 2 * r) r = h / 2;
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath();
+    };
+}
+
 // ─── Colors ───
 const C = {
-    wifi:      'rgba(34,211,238,1)',
-    wifiBg:    'rgba(34,211,238,.15)',
-    fiveg:     'rgba(167,139,250,1)',
-    fivegBg:   'rgba(167,139,250,.15)',
-    green:     'rgba(52,211,153,1)',
-    greenBg:   'rgba(52,211,153,.15)',
-    red:       'rgba(248,113,113,1)',
-    orange:    'rgba(251,146,60,1)',
-    orangeBg:  'rgba(251,146,60,.12)',
-    yellow:    'rgba(251,191,36,1)',
-    grid:      'rgba(255,255,255,.06)',
-    text:      'rgba(160,174,192,.7)',
+    wifi: 'rgba(34,211,238,1)',
+    wifiBg: 'rgba(34,211,238,.15)',
+    fiveg: 'rgba(167,139,250,1)',
+    fivegBg: 'rgba(167,139,250,.15)',
+    green: 'rgba(52,211,153,1)',
+    greenBg: 'rgba(52,211,153,.15)',
+    red: 'rgba(248,113,113,1)',
+    orange: 'rgba(251,146,60,1)',
+    orangeBg: 'rgba(251,146,60,.12)',
+    yellow: 'rgba(251,191,36,1)',
+    grid: 'rgba(255,255,255,.06)',
+    text: 'rgba(160,174,192,.7)',
 };
 
 // ─── Chart.js global defaults ───
@@ -43,7 +57,7 @@ const PAIR_COLORS = [
 ];
 
 // ─── State ───
-let activeScenario = 'both';   // 'both' | 'wifi' | '5g'
+let activeScenario = 'explore';   // 'explore' | 'both' | 'wifi' | '5g'
 
 let state = {
     tick: 0,
@@ -57,6 +71,14 @@ let state = {
     currentWifi: null,
     current5g: null,
     connected: false,
+};
+
+// Exploration state
+let explState = {
+    historyPct: [],
+    historyEntropy: [],
+    historyLabels: [],
+    prevExplStep: -1,
 };
 
 // ─── Scenario Filter ───
@@ -79,6 +101,11 @@ function applyFilter(scenario) {
         updateComparisonCharts(state.currentWifi, state.current5g);
         drawMap(state.currentWifi, state.current5g, state.livePositions || {});
     }
+    // Re-render explore canvases after filter (size may change)
+    setTimeout(() => {
+        resizeExploreCanvases();
+        resizeMap();
+    }, 50);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -131,22 +158,48 @@ function makeBarChart(canvasId, yLabel) {
     });
 }
 
-const chartRSSI     = makeTimeChart('chartRSSI',    'RSSI (dBm)',    ' dBm');
-const chartLatency  = makeTimeChart('chartLatency',  'Latence (ms)',  ' ms');
-const chartCompRSSI = makeBarChart('chartCompareRSSI',    'RSSI (dBm)');
-const chartCompLat  = makeBarChart('chartCompareLatency', 'Latence (ms)');
-const chartDist     = makeBarChart('chartDistance',       'Distance (m)');
+const chartRSSI = makeTimeChart('chartRSSI', 'RSSI (dBm)', ' dBm');
+const chartLatency = makeTimeChart('chartLatency', 'Latence (ms)', ' ms');
+const chartCompRSSI = makeBarChart('chartCompareRSSI', 'RSSI (dBm)');
+const chartCompLat = makeBarChart('chartCompareLatency', 'Latence (ms)');
+const chartDist = makeBarChart('chartDistance', 'Distance (m)');
+
+// ─── Exploration Visual Canvases ───
+const heroCanvas = document.getElementById('canvasHeroMap');
+const heroCtx = heroCanvas ? heroCanvas.getContext('2d') : null;
+const droneCanvases = [0, 1, 2].map(i => document.getElementById(`canvasDrone${i}`));
+const droneCtxs = droneCanvases.map(c => c ? c.getContext('2d') : null);
+const gaugeProgressCanvas = document.getElementById('canvasGaugeProgress');
+const gaugeProgressCtx = gaugeProgressCanvas ? gaugeProgressCanvas.getContext('2d') : null;
+const gaugeAltCanvas = document.getElementById('canvasGaugeAlt');
+const gaugeAltCtx = gaugeAltCanvas ? gaugeAltCanvas.getContext('2d') : null;
+const gaugeSpeedCanvas = document.getElementById('canvasGaugeSpeed');
+const gaugeSpeedCtx = gaugeSpeedCanvas ? gaugeSpeedCanvas.getContext('2d') : null;
+const gaugeDistCanvas = document.getElementById('canvasGaugeDist');
+const gaugeDistCtx = gaugeDistCanvas ? gaugeDistCanvas.getContext('2d') : null;
+
+function resizeExploreCanvases() {
+    const all = [heroCanvas, ...droneCanvases, gaugeProgressCanvas, gaugeAltCanvas, gaugeSpeedCanvas, gaugeDistCanvas];
+    all.forEach(c => {
+        if (!c || !c.parentElement) return;
+        const rect = c.parentElement.getBoundingClientRect();
+        c.width = Math.floor(rect.width);
+        c.height = Math.max(Math.floor(rect.height), 180);
+    });
+}
+resizeExploreCanvases();
+window.addEventListener('resize', resizeExploreCanvases);
 
 // ─────────────────────────────────────────────────────────────
 // MAP CANVAS
 // ─────────────────────────────────────────────────────────────
 
 const mapCanvas = document.getElementById('canvasMap');
-const mapCtx    = mapCanvas.getContext('2d');
+const mapCtx = mapCanvas.getContext('2d');
 
 function resizeMap() {
     const rect = mapCanvas.parentElement.getBoundingClientRect();
-    mapCanvas.width  = rect.width - 16;
+    mapCanvas.width = rect.width - 16;
     mapCanvas.height = Math.max(rect.height - 16, 260);
 }
 resizeMap();
@@ -401,9 +454,9 @@ function pushHistory(wifi, fiveg) {
         wifi.pairs.forEach(p => {
             const key = `${p.drone_a}↔${p.drone_b}`;
             if (!h.rssiWifi[key]) h.rssiWifi[key] = [];
-            if (!h.latWifi[key])  h.latWifi[key]  = [];
+            if (!h.latWifi[key]) h.latWifi[key] = [];
             const rssi = (p.rssi === 'blocked' || p.rssi === 'error') ? null : parseFloat(p.rssi);
-            const lat  = p.latency === '---' ? null : parseFloat(p.latency);
+            const lat = p.latency === '---' ? null : parseFloat(p.latency);
             h.rssiWifi[key].push(rssi);
             h.latWifi[key].push(lat);
             if (h.rssiWifi[key].length > MAX_HISTORY) h.rssiWifi[key].shift();
@@ -437,7 +490,7 @@ function updateTimeCharts() {
     const h = state.history;
 
     const showWifi = (activeScenario === 'both' || activeScenario === 'wifi');
-    const show5g   = (activeScenario === 'both' || activeScenario === '5g');
+    const show5g = (activeScenario === 'both' || activeScenario === '5g');
 
     // RSSI chart: wifi pairs + 5G drones (filtered)
     let datasets = [];
@@ -600,6 +653,627 @@ function updateComparisonCharts(wifi, fiveg) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// EXPLORATION — VISUAL DRAWINGS (Canvas-based)
+// ─────────────────────────────────────────────────────────────
+
+const DRONE_COLS = ['#22d3ee', '#34d399', '#a78bfa'];
+const DRONE_NAMES = ['Drone 0', 'Drone 1', 'Drone 2'];
+
+const STATUS_COLORS = {
+    flying: '#4caf50',
+    crashed: '#f44336',
+    recovering: '#ff9800',
+    landed: '#78909c',
+};
+const STATUS_LABELS = {
+    flying: 'En vol',
+    crashed: 'CRASH',
+    recovering: 'Récupération',
+    landed: 'Posé',
+};
+
+function occColor(p, visited) {
+    if (!visited) return '#111827';
+    if (p > 0.75) return '#b91c1c';
+    if (p > 0.6) return '#92400e';
+    if (p < 0.25) return '#065f46';
+    if (p < 0.4) return '#047857';
+    return '#374151';
+}
+
+// ── Coordinate helpers for a given grid ──
+function makeCoord(g, W, H) {
+    return {
+        toX: (wx) => ((wx - g.origin_x) / (g.width * g.resolution)) * W,
+        toY: (wy) => H - ((wy - g.origin_y) / (g.height * g.resolution)) * H,
+    };
+}
+
+// ═══════════════════════════════════════════════════════════
+// HERO MAP — Full occupancy grid + all drones + trails + targets
+// ═══════════════════════════════════════════════════════════
+function drawHeroMap(expl) {
+    if (!heroCtx || !heroCanvas || !expl || !expl.grid) return;
+    const g = expl.grid;
+    const W = heroCanvas.width, H = heroCanvas.height;
+    if (W === 0 || H === 0) return;
+    heroCtx.clearRect(0, 0, W, H);
+
+    const cellW = W / g.width;
+    const cellH = H / g.height;
+
+    // Occupancy grid
+    for (let gy = 0; gy < g.height; gy++) {
+        for (let gx = 0; gx < g.width; gx++) {
+            const idx = gy * g.width + gx;
+            const p = g.data[idx];
+            const v = g.visited ? g.visited[idx] : (Math.abs(p - 0.5) > 0.02);
+            heroCtx.fillStyle = occColor(p, v);
+            heroCtx.fillRect(gx * cellW, (g.height - 1 - gy) * cellH, cellW + 0.5, cellH + 0.5);
+        }
+    }
+
+    // Frontiers (yellow)
+    if (expl.frontiers) {
+        heroCtx.fillStyle = 'rgba(234,179,8,0.5)';
+        expl.frontiers.forEach(([gx, gy]) => {
+            heroCtx.fillRect(gx * cellW, (g.height - 1 - gy) * cellH, cellW + 0.5, cellH + 0.5);
+        });
+    }
+
+    const { toX, toY } = makeCoord(g, W, H);
+
+    // Warehouse outline
+    heroCtx.strokeStyle = 'rgba(255,255,255,0.12)';
+    heroCtx.lineWidth = 1.5;
+    heroCtx.strokeRect(toX(-15), toY(10), toX(15) - toX(-15), toY(-10) - toY(10));
+
+    // Shelves
+    const shelves = [[-7, 5, 6, 1.2], [7, 5, 6, 1.2], [-7, -5, 6, 1.2], [7, -5, 6, 1.2]];
+    heroCtx.fillStyle = 'rgba(139,92,46,0.3)';
+    shelves.forEach(([sx, sy, sw, sh]) => {
+        heroCtx.fillRect(toX(sx - sw / 2), toY(sy + sh / 2), (sw / (g.width * g.resolution)) * W, (sh / (g.height * g.resolution)) * H);
+    });
+
+    // Trajectories (fading lines)
+    if (expl.trajectories) {
+        Object.entries(expl.trajectories).forEach(([did, pts], idx) => {
+            if (pts.length < 2) return;
+            const col = DRONE_COLS[idx % 3];
+            for (let i = 1; i < pts.length; i++) {
+                const alpha = 0.15 + 0.65 * (i / pts.length);
+                heroCtx.strokeStyle = col + Math.round(alpha * 255).toString(16).padStart(2, '0');
+                heroCtx.lineWidth = 2.5;
+                heroCtx.beginPath();
+                heroCtx.moveTo(toX(pts[i - 1][0]), toY(pts[i - 1][1]));
+                heroCtx.lineTo(toX(pts[i][0]), toY(pts[i][1]));
+                heroCtx.stroke();
+            }
+        });
+    }
+
+    // Drones
+    if (expl.drones) {
+        expl.drones.forEach((d, idx) => {
+            const px = toX(d.x), py = toY(d.y);
+            const col = DRONE_COLS[idx % 3];
+
+            // LiDAR range
+            const lidarR = (10.0 / (g.width * g.resolution)) * W;
+            heroCtx.strokeStyle = col + '25';
+            heroCtx.lineWidth = 1;
+            heroCtx.setLineDash([3, 3]);
+            heroCtx.beginPath(); heroCtx.arc(px, py, lidarR, 0, Math.PI * 2); heroCtx.stroke();
+            heroCtx.setLineDash([]);
+
+            // Target dashed arrow
+            if (d.target_x != null && d.target_y != null) {
+                const tx = toX(d.target_x), ty = toY(d.target_y);
+                heroCtx.strokeStyle = col + 'aa';
+                heroCtx.lineWidth = 2;
+                heroCtx.setLineDash([6, 4]);
+                heroCtx.beginPath(); heroCtx.moveTo(px, py); heroCtx.lineTo(tx, ty); heroCtx.stroke();
+                heroCtx.setLineDash([]);
+                // Target crosshair
+                heroCtx.strokeStyle = '#4ade80';
+                heroCtx.lineWidth = 2;
+                heroCtx.beginPath();
+                heroCtx.arc(tx, ty, 6, 0, Math.PI * 2);
+                heroCtx.stroke();
+                heroCtx.beginPath(); heroCtx.moveTo(tx - 9, ty); heroCtx.lineTo(tx + 9, ty); heroCtx.stroke();
+                heroCtx.beginPath(); heroCtx.moveTo(tx, ty - 9); heroCtx.lineTo(tx, ty + 9); heroCtx.stroke();
+            }
+
+            // Crash ring
+            if (d.status === 'crashed') {
+                heroCtx.strokeStyle = '#f44336';
+                heroCtx.lineWidth = 3;
+                heroCtx.beginPath(); heroCtx.arc(px, py, 18, 0, Math.PI * 2); heroCtx.stroke();
+                heroCtx.fillStyle = 'rgba(244,67,54,0.12)';
+                heroCtx.beginPath(); heroCtx.arc(px, py, 18, 0, Math.PI * 2); heroCtx.fill();
+            }
+
+            // Glow
+            const grad = heroCtx.createRadialGradient(px, py, 0, px, py, 20);
+            grad.addColorStop(0, col + '55');
+            grad.addColorStop(1, col + '00');
+            heroCtx.fillStyle = grad;
+            heroCtx.beginPath(); heroCtx.arc(px, py, 20, 0, Math.PI * 2); heroCtx.fill();
+
+            // Drone icon: triangle pointing in yaw direction
+            const yaw = d.yaw || 0;
+            heroCtx.save();
+            heroCtx.translate(px, py);
+            heroCtx.rotate(-yaw + Math.PI / 2);
+            heroCtx.fillStyle = d.status === 'crashed' ? '#f44336' : col;
+            heroCtx.beginPath();
+            heroCtx.moveTo(0, -9);
+            heroCtx.lineTo(-6, 7);
+            heroCtx.lineTo(6, 7);
+            heroCtx.closePath();
+            heroCtx.fill();
+            heroCtx.restore();
+
+            // Label
+            heroCtx.fillStyle = '#fff';
+            heroCtx.font = '700 12px Inter';
+            heroCtx.textAlign = 'center';
+            heroCtx.fillText(`D${d.id}`, px, py - 16);
+
+            // Altitude text
+            heroCtx.fillStyle = 'rgba(255,255,255,.5)';
+            heroCtx.font = '10px JetBrains Mono';
+            heroCtx.fillText(`z=${d.z?.toFixed(1)}  v=${(d.speed || 0).toFixed(1)}`, px, py + 24);
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PER-DRONE BELIEF MAP — Each drone's individual view
+// ═══════════════════════════════════════════════════════════
+function drawDroneBelief(ctx, canvas, expl, droneIdx) {
+    if (!ctx || !canvas || !expl || !expl.grid) return;
+    const g = expl.grid;
+    const W = canvas.width, H = canvas.height;
+    if (W === 0 || H === 0) return;
+    ctx.clearRect(0, 0, W, H);
+
+    const d = expl.drones ? expl.drones[droneIdx] : null;
+    if (!d || d.x == null || d.y == null) return;
+
+    const col = DRONE_COLS[droneIdx % 3];
+    const cellW = W / g.width;
+    const cellH = H / g.height;
+
+    // Draw full grid dimmed, then highlight drone's LiDAR radius
+    for (let gy = 0; gy < g.height; gy++) {
+        for (let gx = 0; gx < g.width; gx++) {
+            const idx = gy * g.width + gx;
+            const p = g.data[idx];
+            const v = g.visited ? g.visited[idx] : (Math.abs(p - 0.5) > 0.02);
+            ctx.fillStyle = occColor(p, v);
+            ctx.fillRect(gx * cellW, (g.height - 1 - gy) * cellH, cellW + 0.5, cellH + 0.5);
+        }
+    }
+
+    // Dim overlay outside LiDAR range
+    const { toX, toY } = makeCoord(g, W, H);
+    const px = toX(d.x), py = toY(d.y);
+    const lidarR = (10.0 / (g.width * g.resolution)) * W;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.arc(px, py, lidarR, 0, Math.PI * 2, true); // cut out circle
+    ctx.fill();
+    ctx.restore();
+
+    // LiDAR circle border
+    ctx.strokeStyle = col + '60';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(px, py, lidarR, 0, Math.PI * 2); ctx.stroke();
+
+    // Drone trajectory (this drone only)
+    if (expl.trajectories) {
+        const pts = expl.trajectories[droneIdx] || expl.trajectories[String(droneIdx)];
+        if (pts && pts.length > 1) {
+            ctx.strokeStyle = col + '66';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(toX(pts[0][0]), toY(pts[0][1]));
+            for (let i = 1; i < pts.length; i++) {
+                ctx.lineTo(toX(pts[i][0]), toY(pts[i][1]));
+            }
+            ctx.stroke();
+        }
+    }
+
+    // Target
+    if (d.target_x != null && d.target_y != null) {
+        const tx = toX(d.target_x), ty = toY(d.target_y);
+        ctx.strokeStyle = '#4ade80';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(tx, ty); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(tx, ty, 5, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // Drone icon (triangle)
+    const yaw = d.yaw || 0;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(-yaw + Math.PI / 2);
+    ctx.fillStyle = d.status === 'crashed' ? '#f44336' : col;
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(-5, 6);
+    ctx.lineTo(5, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Status badge on panel
+    const statusTag = document.getElementById(`statusDrone${droneIdx}`);
+    if (statusTag) {
+        const sc = STATUS_COLORS[d.status] || col;
+        statusTag.textContent = STATUS_LABELS[d.status] || d.status;
+        statusTag.style.color = sc;
+        statusTag.style.background = sc + '22';
+    }
+
+    // Info bar
+    const infoBar = document.getElementById(`infoDrone${droneIdx}`);
+    if (infoBar) {
+        const tgt = (d.target_x != null) ? `(${d.target_x.toFixed(1)}, ${d.target_y.toFixed(1)})` : '—';
+        infoBar.innerHTML =
+            `<span class="di-item"><b>Pos</b> (${d.x.toFixed(1)}, ${d.y.toFixed(1)})</span>` +
+            `<span class="di-item"><b>Alt</b> ${d.z.toFixed(1)}m</span>` +
+            `<span class="di-item"><b>Vit</b> ${(d.speed || 0).toFixed(1)} m/s</span>` +
+            `<span class="di-item"><b>🎯</b> ${tgt}</span>` +
+            `<span class="di-item"><b>Cellules</b> ${d.cells_discovered}</span>` +
+            `<span class="di-item"><b>Dist</b> ${d.distance_traveled.toFixed(1)}m</span>`;
+    }
+
+    // Flash panel on crash
+    const panel = document.getElementById(`panelDrone${droneIdx}`);
+    if (panel) {
+        panel.classList.toggle('panel-crashed', d.status === 'crashed');
+        panel.classList.toggle('panel-recovering', d.status === 'recovering');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// GAUGE DRAWINGS
+// ═══════════════════════════════════════════════════════════
+
+function drawGaugeProgress(expl) {
+    if (!gaugeProgressCtx || !gaugeProgressCanvas) return;
+    const W = gaugeProgressCanvas.width, H = gaugeProgressCanvas.height;
+    if (W === 0 || H === 0) return;
+    gaugeProgressCtx.clearRect(0, 0, W, H);
+    const ctx = gaugeProgressCtx;
+
+    const pct = expl ? (expl.explored_pct || 0) : 0;
+    const cx = W / 2, cy = H / 2;
+    const r = Math.min(cx, cy) - 20;
+
+    // Background arc
+    ctx.strokeStyle = '#1f2937';
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0.75 * Math.PI, 2.25 * Math.PI);
+    ctx.stroke();
+
+    // Progress arc
+    const endAngle = 0.75 * Math.PI + (pct / 100) * 1.5 * Math.PI;
+    const grad = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+    grad.addColorStop(0, '#065f46');
+    grad.addColorStop(1, '#4ade80');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0.75 * Math.PI, endAngle);
+    ctx.stroke();
+
+    // Center text
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 32px Inter';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${pct.toFixed(0)}%`, cx, cy - 8);
+
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.font = '12px Inter';
+    ctx.fillText('exploré', cx, cy + 18);
+
+    // Step + cells
+    if (expl) {
+        ctx.fillStyle = 'rgba(255,255,255,.4)';
+        ctx.font = '11px JetBrains Mono';
+        ctx.fillText(`Step ${expl.step || 0}  •  ${expl.explored_cells || 0}/${expl.total_cells || 0} cells`, cx, cy + r + 10);
+    }
+}
+
+function drawGaugeAltitude(expl) {
+    if (!gaugeAltCtx || !gaugeAltCanvas) return;
+    const W = gaugeAltCanvas.width, H = gaugeAltCanvas.height;
+    if (W === 0 || H === 0) return;
+    gaugeAltCtx.clearRect(0, 0, W, H);
+    const ctx = gaugeAltCtx;
+
+    if (!expl || !expl.drones || !expl.drones.length) return;
+
+    const maxAlt = 8;
+    const barW = 40;
+    const gap = 24;
+    const totalW = expl.drones.length * (barW + gap) - gap;
+    const startX = (W - totalW) / 2;
+    const barTop = 30;
+    const barBot = H - 40;
+    const barH = barBot - barTop;
+    const dangerY = barBot - (1.0 / maxAlt) * barH;
+    const targetY = barBot - (4.0 / maxAlt) * barH;
+
+    // Danger zone line
+    ctx.strokeStyle = 'rgba(244,67,54,0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(startX - 10, dangerY); ctx.lineTo(startX + totalW + 10, dangerY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(244,67,54,0.5)';
+    ctx.font = '9px Inter';
+    ctx.textAlign = 'left';
+    ctx.fillText('danger 1m', startX + totalW + 14, dangerY + 3);
+
+    // Target altitude line
+    ctx.strokeStyle = 'rgba(74,222,128,0.3)';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(startX - 10, targetY); ctx.lineTo(startX + totalW + 10, targetY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(74,222,128,0.4)';
+    ctx.fillText('cible 4m', startX + totalW + 14, targetY + 3);
+
+    expl.drones.forEach((d, idx) => {
+        const x = startX + idx * (barW + gap);
+        const col = DRONE_COLS[idx % 3];
+        const alt = d.z || 0;
+        const fillH = Math.min((alt / maxAlt) * barH, barH);
+
+        // Bar background
+        ctx.fillStyle = '#1f2937';
+        ctx.beginPath();
+        ctx.roundRect(x, barTop, barW, barH, 6);
+        ctx.fill();
+
+        // Bar fill
+        const isDanger = alt < 1.5;
+        const barGrad = ctx.createLinearGradient(x, barBot, x, barBot - fillH);
+        barGrad.addColorStop(0, isDanger ? '#f44336' : col);
+        barGrad.addColorStop(1, isDanger ? '#f4433688' : col + '88');
+        ctx.fillStyle = barGrad;
+        ctx.beginPath();
+        ctx.roundRect(x, barBot - fillH, barW, fillH, 6);
+        ctx.fill();
+
+        // Value
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 14px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${alt.toFixed(1)}`, x + barW / 2, barBot - fillH - 8);
+
+        // Label
+        ctx.fillStyle = col;
+        ctx.font = '600 11px Inter';
+        ctx.fillText(`D${d.id}`, x + barW / 2, barBot + 18);
+    });
+}
+
+function drawGaugeSpeed(expl) {
+    if (!gaugeSpeedCtx || !gaugeSpeedCanvas) return;
+    const W = gaugeSpeedCanvas.width, H = gaugeSpeedCanvas.height;
+    if (W === 0 || H === 0) return;
+    gaugeSpeedCtx.clearRect(0, 0, W, H);
+    const ctx = gaugeSpeedCtx;
+
+    if (!expl || !expl.drones || !expl.drones.length) return;
+
+    const cx = W / 2;
+    const meterR = Math.min(W, H) / 2 - 30;
+    const cy = H / 2 + 10;
+    const maxSpeed = 10;
+
+    // Draw speed arcs for each drone
+    expl.drones.forEach((d, idx) => {
+        const col = DRONE_COLS[idx % 3];
+        const speed = d.speed || 0;
+        const r = meterR - idx * 16;
+        const startA = 0.8 * Math.PI;
+        const endA = startA + (Math.min(speed, maxSpeed) / maxSpeed) * 1.4 * Math.PI;
+
+        // Background arc
+        ctx.strokeStyle = '#1f2937';
+        ctx.lineWidth = 10;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0.8 * Math.PI, 2.2 * Math.PI);
+        ctx.stroke();
+
+        // Speed arc
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, startA, endA);
+        ctx.stroke();
+
+        // Speed label
+        ctx.fillStyle = col;
+        ctx.font = '600 12px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.fillText(`D${d.id}: ${speed.toFixed(1)} m/s`, cx, cy + meterR + 12 + idx * 16);
+    });
+
+    // Distance traveled labels
+    ctx.fillStyle = 'rgba(255,255,255,.4)';
+    ctx.font = '10px Inter';
+    ctx.textAlign = 'center';
+    expl.drones.forEach((d, idx) => {
+        const dt = d.distance_traveled != null ? d.distance_traveled.toFixed(0) : '0';
+        ctx.fillText(`${dt}m parcourus`, cx, cy - meterR + 8 + idx * 14);
+    });
+}
+
+function drawGaugeDist(expl) {
+    if (!gaugeDistCtx || !gaugeDistCanvas) return;
+    const W = gaugeDistCanvas.width, H = gaugeDistCanvas.height;
+    if (W === 0 || H === 0) return;
+    gaugeDistCtx.clearRect(0, 0, W, H);
+    const ctx = gaugeDistCtx;
+
+    if (!expl || !expl.drones || expl.drones.length < 2) return;
+
+    const pairs = [];
+    for (let i = 0; i < expl.drones.length; i++) {
+        for (let j = i + 1; j < expl.drones.length; j++) {
+            const a = expl.drones[i], b = expl.drones[j];
+            const dist = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+            pairs.push({ a: i, b: j, dist });
+        }
+    }
+
+    // Draw as a small triangle diagram
+    const cx = W / 2, cy = H / 2;
+    const r = Math.min(W, H) / 2 - 50;
+    const positions = expl.drones.map((d, i) => {
+        const angle = -Math.PI / 2 + (i * 2 * Math.PI / expl.drones.length);
+        return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+    });
+
+    // Draw connections with distance
+    pairs.forEach(({ a, b, dist }) => {
+        const pa = positions[a], pb = positions[b];
+        const tooClose = dist < 3;
+        ctx.strokeStyle = tooClose ? '#f44336' : 'rgba(255,255,255,.15)';
+        ctx.lineWidth = tooClose ? 2 : 1;
+        ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+
+        // Distance label on line
+        const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
+        ctx.fillStyle = tooClose ? '#f44336' : '#fff';
+        ctx.font = '700 13px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${dist.toFixed(1)}m`, mx, my);
+    });
+
+    // Draw drone nodes
+    expl.drones.forEach((d, idx) => {
+        const p = positions[idx];
+        const col = DRONE_COLS[idx % 3];
+
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 24);
+        grad.addColorStop(0, col + '44');
+        grad.addColorStop(1, col + '00');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 11px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText(`D${d.id}`, p.x, p.y - 18);
+    });
+
+    // Coordination safety radius note
+    ctx.fillStyle = 'rgba(255,255,255,.3)';
+    ctx.font = '10px Inter';
+    ctx.textAlign = 'center';
+    ctx.fillText('Rayon de coordination : 6m', cx, H - 10);
+}
+
+// ── Event Timeline (kept, visual) ──
+function updateEventTimeline(expl) {
+    if (!expl || !expl.events) return;
+    const timeline = document.getElementById('eventTimeline');
+    const events = expl.events;
+    if (!events.length) return;
+
+    const showCrash = document.getElementById('evtFilterCrash').checked;
+    const showWarning = document.getElementById('evtFilterWarning').checked;
+    const showTarget = document.getElementById('evtFilterTarget').checked;
+    const showInfo = document.getElementById('evtFilterInfo').checked;
+
+    const filtered = events.filter(e => {
+        if (e.type === 'crash' || e.type === 'recovery') return showCrash;
+        if (e.type === 'warning') return showWarning;
+        if (e.type === 'target') return showTarget;
+        return showInfo;
+    });
+
+    const EVT_ICONS = { crash: '🔴', recovery: '🟠', warning: '⚠️', target: '🎯', info: 'ℹ️' };
+    const EVT_CLASSES = { crash: 'evt-crash', recovery: 'evt-warning', warning: 'evt-warning', target: 'evt-target', info: 'evt-info' };
+
+    const recent = filtered.slice(-50).reverse();
+    timeline.innerHTML = recent.map(e => {
+        const icon = EVT_ICONS[e.type] || 'ℹ️';
+        const cls = EVT_CLASSES[e.type] || 'evt-info';
+        const col = DRONE_COLS[e.drone % 3];
+        return `<div class="evt-entry ${cls}">
+            <span class="evt-icon">${icon}</span>
+            <span class="evt-step">S${e.step}</span>
+            <span class="evt-time">${e.time}</span>
+            <span class="evt-drone" style="color:${col}">D${e.drone}</span>
+            <span class="evt-msg">${e.message}</span>
+        </div>`;
+    }).join('');
+}
+
+document.getElementById('btnClearEvents').addEventListener('click', () => {
+    document.getElementById('eventTimeline').innerHTML =
+        '<div class="event-empty">Journal effacé.</div>';
+});
+
+function updateExploration(expl) {
+    if (!expl) return;
+
+    // Hero header KPIs
+    const heroStep = document.getElementById('heroStep');
+    const heroPct = document.getElementById('heroPct');
+    const heroStat = document.getElementById('heroStatus');
+    if (heroStep) heroStep.textContent = `Step ${expl.step || 0}`;
+    if (heroPct) heroPct.textContent = `${(expl.explored_pct || 0).toFixed(1)}%`;
+    if (heroStat) {
+        const pct = expl.explored_pct || 0;
+        const crashed = expl.drones ? expl.drones.filter(d => d.status === 'crashed').length : 0;
+        if (pct >= 95) {
+            heroStat.textContent = 'Terminée ✓';
+            heroStat.classList.add('explore-done');
+        } else if (crashed > 0) {
+            heroStat.textContent = `⚠ ${crashed} crash`;
+            heroStat.classList.add('explore-warning');
+        } else {
+            heroStat.textContent = `En cours…`;
+            heroStat.classList.remove('explore-done', 'explore-warning');
+        }
+    }
+
+    // Draw all visual canvases
+    drawHeroMap(expl);
+    for (let i = 0; i < 3; i++) {
+        drawDroneBelief(droneCtxs[i], droneCanvases[i], expl, i);
+    }
+    drawGaugeProgress(expl);
+    drawGaugeAltitude(expl);
+    drawGaugeSpeed(expl);
+    drawGaugeDist(expl);
+    updateEventTimeline(expl);
+}
+
+// ─────────────────────────────────────────────────────────────
 // LOG
 // ─────────────────────────────────────────────────────────────
 
@@ -665,12 +1339,12 @@ async function poll() {
             state.connected = true;
         }
 
-        const wifi  = data.wifi;
+        const wifi = data.wifi;
         const fiveg = data.fiveg;
         const livePositions = data.positions || {};
-        state.tick  = data.tick || state.tick;
+        state.tick = data.tick || state.tick;
         state.currentWifi = wifi;
-        state.current5g   = fiveg;
+        state.current5g = fiveg;
         state.livePositions = livePositions;
 
         // Only push history if tick changed
@@ -693,6 +1367,12 @@ async function poll() {
         updateComparisonCharts(wifi, fiveg);
         drawMap(wifi, fiveg, livePositions);
 
+        // Exploration
+        const expl = data.exploration;
+        if (expl) {
+            updateExploration(expl);
+        }
+
     } catch (err) {
         if (state.connected) {
             setStatus(false, 'Déconnecté');
@@ -708,3 +1388,6 @@ poll();
 
 // Initial draw
 drawMap(null, null, {});
+
+// Apply initial filter
+applyFilter('explore');

@@ -879,74 +879,50 @@
 
     </plugin>
 
-  
-    <!-- ============ LIDAR 2D 360° ============ -->
+
+    <!-- LiDAR sensor for exploration -->
     <link name="lidar_link">
       <pose>0 0 0.05 0 0 0</pose>
       <inertial>
         <mass>0.01</mass>
         <inertia>
-          <ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz>
-          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+          <ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz>
         </inertia>
       </inertial>
-      <sensor name="lidar_2d" type="gpu_lidar">
-        <topic>/drone_2/lidar</topic>
+      <visual name="lidar_visual">
+        <geometry><cylinder><radius>0.02</radius><length>0.04</length></cylinder></geometry>
+        <material><ambient>1 0 0 1</ambient><diffuse>1 0 0 1</diffuse></material>
+      </visual>
+      <sensor name="lidar" type="gpu_lidar">
+        <always_on>true</always_on>
         <update_rate>5</update_rate>
+        <visualize>false</visualize>
         <lidar>
           <scan>
             <horizontal>
               <samples>360</samples>
               <resolution>1</resolution>
-              <min_angle>-3.14159</min_angle>
-              <max_angle>3.14159</max_angle>
+              <min_angle>-3.14159265</min_angle>
+              <max_angle>3.14159265</max_angle>
             </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
           </scan>
           <range>
-            <min>0.1</min>
+            <min>0.08</min>
             <max>10.0</max>
+            <resolution>0.01</resolution>
           </range>
         </lidar>
-        <always_on>true</always_on>
-        <visualize>true</visualize>
       </sensor>
     </link>
     <joint name="lidar_joint" type="fixed">
       <parent>iris_with_standoffs::base_link</parent>
       <child>lidar_link</child>
-    </joint>
-
-    <!-- ============ CAMERA RGB ============ -->
-    <link name="camera_link">
-      <pose>0.1 0 0 0 0 0</pose>
-      <inertial>
-        <mass>0.01</mass>
-        <inertia>
-          <ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz>
-          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <sensor name="camera_rgb" type="camera">
-        <topic>/drone_2/camera</topic>
-        <update_rate>10</update_rate>
-        <camera>
-          <horizontal_fov>1.047</horizontal_fov>
-          <image>
-            <width>640</width>
-            <height>480</height>
-          </image>
-          <clip>
-            <near>0.1</near>
-            <far>50</far>
-          </clip>
-        </camera>
-        <always_on>true</always_on>
-        <visualize>true</visualize>
-      </sensor>
-    </link>
-    <joint name="camera_joint" type="fixed">
-      <parent>iris_with_standoffs::base_link</parent>
-      <child>camera_link</child>
     </joint>
 
   </model>

@@ -34,6 +34,7 @@ FIVEG_LAT_CSV    = "/tmp/drone_latency_ns3.csv"
 FIVEG_METRICS    = "/tmp/drone_5g_metrics.csv"
 
 POS_CSV          = "/tmp/drone_positions.csv"
+EXPLORE_JSON     = "/tmp/exploration_state.json"
 
 GNB_POSITION = (0.0, 0.0, 6.0)
 
@@ -211,6 +212,15 @@ def read_ns3_wifi_output(path=NS3_OUTPUT_CSV):
     return list(latest.values())
 
 
+def read_exploration_state(path=EXPLORE_JSON):
+    """Read the exploration state JSON produced by 10_exploration_active_inference."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
 # ─── Build API response ───
 
 def build_response():
@@ -304,10 +314,15 @@ def build_response():
 
     tick = max(wifi_tick, tick_5g_rssi, tick_5g_lat, 0)
 
+    # Exploration data
+    exploration = read_exploration_state()
+    if exploration:
+        tick = max(tick, exploration.get("step", 0))
+
     return {
         "tick": tick,
         "timestamp": time.strftime("%H:%M:%S"),
-        "positions": positions,  # always-fresh drone positions
+        "positions": positions,
         "wifi": {
             "pairs": wifi_pairs,
         } if wifi_pairs else None,
@@ -316,6 +331,7 @@ def build_response():
             "pairs": pairs_5g,
             "gnb": {"x": GNB_POSITION[0], "y": GNB_POSITION[1], "z": GNB_POSITION[2]},
         } if (drones_5g or pairs_5g) else None,
+        "exploration": exploration,
     }
 
 
