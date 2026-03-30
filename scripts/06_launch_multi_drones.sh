@@ -86,10 +86,61 @@ for i in $(seq 0 $((N_DRONES - 1))); do
     # Mettre à jour le nom dans model.config
     sed -i "s|<name>[^<]*</name>|<name>$MODEL_NAME</name>|" "$MODEL_DEST/model.config"
 
-    # Injecter capteurs LIDAR + Caméra
-    python3 "$WORKSPACE/exploration/inject_sensors.py" "$MODEL_DEST/model.sdf" $i
+    # Injecter le capteur LiDAR (gpu_lidar) pour l'exploration
+    python3 -c "
+sdf = open('$MODEL_DEST/model.sdf').read()
+lidar = '''
+    <!-- LiDAR sensor for exploration -->
+    <link name=\"lidar_link\">
+      <pose>0 0 0.05 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia>
+          <ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz>
+        </inertia>
+      </inertial>
+      <visual name=\"lidar_visual\">
+        <geometry><cylinder><radius>0.02</radius><length>0.04</length></cylinder></geometry>
+        <material><ambient>1 0 0 1</ambient><diffuse>1 0 0 1</diffuse></material>
+      </visual>
+      <sensor name=\"lidar\" type=\"gpu_lidar\">
+        <always_on>true</always_on>
+        <update_rate>5</update_rate>
+        <visualize>false</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159265</min_angle>
+              <max_angle>3.14159265</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.08</min>
+            <max>10.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name=\"lidar_joint\" type=\"fixed\">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>lidar_link</child>
+    </joint>
+'''
+if 'lidar_link' not in sdf:
+    sdf = sdf.replace('  </model>\n</sdf>', lidar + '\n  </model>\n</sdf>')
+    open('$MODEL_DEST/model.sdf', 'w').write(sdf)
+"
 
-    echo "  Drone $i : $MODEL_NAME (fdm_in=$PORT_IN, fdm_out=$PORT_OUT)"
+    echo "  Drone $i : $MODEL_NAME (fdm_in=$PORT_IN, fdm_out=$PORT_OUT, +LiDAR)"
 done
 
 # Générer le monde SDF : Warehouse + N drones

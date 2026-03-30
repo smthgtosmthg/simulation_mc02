@@ -20,7 +20,8 @@
     </div>
     <div class="header-center">
         <div class="scenario-tabs">
-            <button class="tab active" data-scenario="both">Comparaison</button>
+            <button class="tab active" data-scenario="explore">Exploration</button>
+            <button class="tab" data-scenario="both">Comparaison</button>
             <button class="tab" data-scenario="wifi">WiFi 802.11n</button>
             <button class="tab" data-scenario="5g">5G NR</button>
         </div>
@@ -37,8 +38,118 @@
 <!-- ─── MAIN ─── -->
 <main class="dashboard">
 
-    <!-- KPI CARDS ROW -->
-    <section class="kpi-row">
+    <!-- ═══════════════════════════════════════════════════════
+         EXPLORATION — Active Inference — Visual Dashboard
+         ═══════════════════════════════════════════════════════ -->
+
+    <!-- HERO: Big global exploration map (full width) -->
+    <section class="vis-hero" data-vis="explore">
+        <div class="vis-card vis-full">
+            <div class="vis-header">
+                <h3>🗺️ Exploration en direct — Entrepôt 30m × 20m</h3>
+                <div class="vis-header-right">
+                    <span class="vis-step" id="heroStep">Step 0</span>
+                    <span class="vis-pct" id="heroPct">0%</span>
+                    <span class="badge explore-badge" id="heroStatus">En attente…</span>
+                </div>
+            </div>
+            <div class="vis-canvas-wrap vis-hero-canvas">
+                <canvas id="canvasHeroMap"></canvas>
+            </div>
+            <div class="vis-legend">
+                <span class="leg"><span class="leg-box" style="background:#111827"></span>Inconnu</span>
+                <span class="leg"><span class="leg-box" style="background:#065f46"></span>Libre</span>
+                <span class="leg"><span class="leg-box" style="background:#b91c1c"></span>Obstacle</span>
+                <span class="leg"><span class="leg-box" style="background:#eab308"></span>Frontière</span>
+                <span class="leg"><span class="leg-box" style="background:#22d3ee;border-radius:50%"></span>Drone</span>
+                <span class="leg"><span class="leg-box" style="background:transparent;border:2px dashed #4ade80"></span>Cible</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Per-drone belief maps (side by side) -->
+    <section class="vis-drone-maps" data-vis="explore">
+        <div class="vis-card vis-drone-panel" id="panelDrone0">
+            <div class="vis-header">
+                <h3><span class="drone-dot" style="background:#22d3ee"></span>Drone 0</h3>
+                <span class="drone-status-tag" id="statusDrone0">—</span>
+            </div>
+            <div class="vis-canvas-wrap vis-drone-canvas">
+                <canvas id="canvasDrone0"></canvas>
+            </div>
+            <div class="drone-info-bar" id="infoDrone0"></div>
+        </div>
+        <div class="vis-card vis-drone-panel" id="panelDrone1">
+            <div class="vis-header">
+                <h3><span class="drone-dot" style="background:#34d399"></span>Drone 1</h3>
+                <span class="drone-status-tag" id="statusDrone1">—</span>
+            </div>
+            <div class="vis-canvas-wrap vis-drone-canvas">
+                <canvas id="canvasDrone1"></canvas>
+            </div>
+            <div class="drone-info-bar" id="infoDrone1"></div>
+        </div>
+        <div class="vis-card vis-drone-panel" id="panelDrone2">
+            <div class="vis-header">
+                <h3><span class="drone-dot" style="background:#a78bfa"></span>Drone 2</h3>
+                <span class="drone-status-tag" id="statusDrone2">—</span>
+            </div>
+            <div class="vis-canvas-wrap vis-drone-canvas">
+                <canvas id="canvasDrone2"></canvas>
+            </div>
+            <div class="drone-info-bar" id="infoDrone2"></div>
+        </div>
+    </section>
+
+    <!-- Visual gauges row: progress circle + altitude meters + speed -->
+    <section class="vis-gauges" data-vis="explore">
+        <div class="vis-card vis-gauge-card">
+            <div class="vis-header"><h3>📊 Progression</h3></div>
+            <div class="vis-canvas-wrap vis-gauge-canvas">
+                <canvas id="canvasGaugeProgress"></canvas>
+            </div>
+        </div>
+        <div class="vis-card vis-gauge-card">
+            <div class="vis-header"><h3>📏 Altitude des drones</h3></div>
+            <div class="vis-canvas-wrap vis-gauge-canvas">
+                <canvas id="canvasGaugeAlt"></canvas>
+            </div>
+        </div>
+        <div class="vis-card vis-gauge-card">
+            <div class="vis-header"><h3>🏃 Vitesse &amp; Distance</h3></div>
+            <div class="vis-canvas-wrap vis-gauge-canvas">
+                <canvas id="canvasGaugeSpeed"></canvas>
+            </div>
+        </div>
+        <div class="vis-card vis-gauge-card">
+            <div class="vis-header"><h3>📡 Distance inter-drones</h3></div>
+            <div class="vis-canvas-wrap vis-gauge-canvas">
+                <canvas id="canvasGaugeDist"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- Event timeline (compact, visual) -->
+    <section class="vis-events-section" data-vis="explore">
+        <div class="vis-card vis-full">
+            <div class="vis-header">
+                <h3>📋 Événements</h3>
+                <div style="display:flex;gap:.5rem;align-items:center;">
+                    <label class="filter-label"><input type="checkbox" id="evtFilterCrash" checked> 🔴 Crash</label>
+                    <label class="filter-label"><input type="checkbox" id="evtFilterWarning" checked> ⚠️ Alerte</label>
+                    <label class="filter-label"><input type="checkbox" id="evtFilterTarget" checked> 🎯 Cible</label>
+                    <label class="filter-label"><input type="checkbox" id="evtFilterInfo" checked> ℹ️ Info</label>
+                    <button class="btn-clear" id="btnClearEvents">Effacer</button>
+                </div>
+            </div>
+            <div class="event-timeline" id="eventTimeline">
+                <div class="event-empty">En attente d'événements…</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- KPI CARDS ROW (existing) -->
+    <section class="kpi-row" data-vis="both wifi 5g">
         <div class="kpi-card" id="kpiDrones" data-vis="both wifi 5g">
             <div class="kpi-icon wifi">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
