@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Active Inference — Drone Exploration Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header class="topbar">
+    <div class="topbar-left">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+        <span class="logo-text">Active Inference Explorer</span>
+    </div>
+    <div class="topbar-center">
+        <span class="badge" id="badgeStep">Step 0</span>
+        <span class="badge badge-green" id="badgeCoverage">0 %</span>
+        <span class="badge badge-blue" id="badgeEntropy">H = 0.693</span>
+    </div>
+    <div class="topbar-right">
+        <div class="status-pill" id="statusPill">
+            <span class="pulse"></span>
+            <span id="statusText">Connecting…</span>
+        </div>
+        <button class="btn-pause" id="btnPause" title="Pause/Resume">⏸</button>
+    </div>
+</header>
+
+<!-- ── MAIN CONTENT ── -->
+<main class="dashboard">
+
+    <!-- ── BIG MAP ── -->
+    <section class="map-section">
+        <div class="card card-map">
+            <div class="card-header">
+                <h2>Belief Map — Fused Occupancy Grid</h2>
+                <div class="map-legend">
+                    <span class="leg"><span class="leg-swatch" style="background:#0f172a"></span>Unknown</span>
+                    <span class="leg"><span class="leg-swatch" style="background:#10b981"></span>Free</span>
+                    <span class="leg"><span class="leg-swatch" style="background:#ef4444"></span>Occupied</span>
+                    <span class="leg"><span class="leg-swatch dot" style="background:#22d3ee"></span>Drone</span>
+                    <span class="leg"><span class="leg-swatch" style="background:rgba(255,255,255,.25);border:1px dashed #94a3b8"></span>Obstacle</span>
+                </div>
+            </div>
+            <div class="canvas-wrap" id="mapWrap">
+                <canvas id="canvasMap"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── KPI ROW ── -->
+    <section class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpiStep">0</div>
+            <div class="kpi-label">Step</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpiCoverage">0%</div>
+            <div class="kpi-label">Coverage</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpiEntropy">0.693</div>
+            <div class="kpi-label">Mean Entropy</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpiDrones">0</div>
+            <div class="kpi-label">Drones</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpiInfoGain">0</div>
+            <div class="kpi-label">Step IG</div>
+        </div>
+    </section>
+
+    <!-- ── CHARTS 2×2 ── -->
+    <section class="charts-grid">
+        <div class="card card-chart">
+            <div class="card-header"><h3>Entropy Over Time</h3></div>
+            <div class="chart-wrap"><canvas id="chartEntropy"></canvas></div>
+        </div>
+        <div class="card card-chart">
+            <div class="card-header"><h3>Exploration Coverage (%)</h3></div>
+            <div class="chart-wrap"><canvas id="chartCoverage"></canvas></div>
+        </div>
+        <div class="card card-chart">
+            <div class="card-header"><h3>Expected Free Energy (per drone)</h3></div>
+            <div class="chart-wrap"><canvas id="chartFE"></canvas></div>
+        </div>
+        <div class="card card-chart">
+            <div class="card-header"><h3>Information Gain (per step)</h3></div>
+            <div class="chart-wrap"><canvas id="chartIG"></canvas></div>
+        </div>
+    </section>
+
+    <!-- ── DRONE INFO TABLE ── -->
+    <section class="drone-table-section">
+        <div class="card">
+            <div class="card-header"><h3>Drone Status</h3></div>
+            <div class="table-wrap">
+                <table id="droneTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Position</th><th>Action</th>
+                            <th>Free Energy</th><th>Info Gain</th>
+                            <th>Distance</th><th>Local H</th>
+                        </tr>
+                    </thead>
+                    <tbody id="droneTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
