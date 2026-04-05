@@ -428,11 +428,10 @@ def _create_backend_class():
 
             # ── Position PD ──
             ep = self.p - self.target
-            ev = self.v  # target velocity is zero (hovering at waypoint)
+            ev = self.v 
 
-            self.arrived = np.linalg.norm(ep[:2]) < self.cfg.waypoint_tol
+            self.arrived = np.linalg.norm(ep[:2]) < self.cfg.waypoint_tol #Si erreur XY < tolérance, drone considéré “arrivé”.
 
-            # Desired force in world frame (gravity compensation + PD)
             F_des = -(self.Kp @ ep) - (self.Kd @ ev) + np.array([0.0, 0.0, self.mass * self.g])
 
             # Current body Z axis
@@ -501,7 +500,6 @@ def _create_backend_class():
 # ════════════════════════════════════════════════════════════════
 
 def create_obstacle_layout() -> List[Dict]:
-    """Warehouse obstacles: shelving rows, crates, pillars, perimeter walls."""
     obstacles: List[Dict] = []
 
     for i, y in enumerate([4.0, 8.5, 13.0, 17.0]):
@@ -532,12 +530,11 @@ def create_obstacle_layout() -> List[Dict]:
 # ════════════════════════════════════════════════════════════════
 
 def build_scene_obstacles(obstacles: List[Dict]):
-    """Create USD geometry with CollisionAPI + kinematic RigidBodyAPI + materials."""
     from pxr import Gf, Sdf, UsdGeom, UsdPhysics, UsdShade
     import omni.usd
 
-    stage = omni.usd.get_context().get_stage()
-    stage.DefinePrim("/World/Obstacles", "Xform")
+    stage = omni.usd.get_context().get_stage() #recuperer le stage usd 
+    stage.DefinePrim("/World/Obstacles", "Xform")#creer dosssier pour ranger tous les obstacles 
 
     # ── Create reusable materials ──
     def _make_material(name: str, color: Gf.Vec3f) -> UsdShade.Material:
@@ -550,10 +547,10 @@ def build_scene_obstacles(obstacles: List[Dict]):
         mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
         return mat
 
-    mat_shelf = _make_material("shelf_mat", Gf.Vec3f(0.55, 0.35, 0.15))   # brown
-    mat_crate = _make_material("crate_mat", Gf.Vec3f(0.9, 0.75, 0.3))     # yellow-wood
-    mat_pillar = _make_material("pillar_mat", Gf.Vec3f(0.7, 0.7, 0.7))    # grey concrete
-    mat_wall = _make_material("wall_mat", Gf.Vec3f(0.85, 0.85, 0.8))      # off-white
+    mat_shelf = _make_material("shelf_mat", Gf.Vec3f(0.55, 0.35, 0.15))  
+    mat_crate = _make_material("crate_mat", Gf.Vec3f(0.9, 0.75, 0.3)) 
+    mat_pillar = _make_material("pillar_mat", Gf.Vec3f(0.7, 0.7, 0.7))   
+    mat_wall = _make_material("wall_mat", Gf.Vec3f(0.85, 0.85, 0.8))     
 
     def _pick_material(label: str) -> UsdShade.Material:
         if "shelf" in label:
@@ -609,10 +606,6 @@ def build_scene_obstacles(obstacles: List[Dict]):
 # ════════════════════════════════════════════════════════════════
 
 class LidarReader:
-    """
-    Attaches a PhysX rotating LiDAR to a drone body prim.
-    Returns (angles, ranges, hits) for the AIF belief update.
-    """
 
     def __init__(self, drone_id: int, drone_prim_path: str, cfg: SimConfig):
         from isaacsim.sensors.physx import RotatingLidarPhysX
@@ -630,12 +623,10 @@ class LidarReader:
         )
         self.sensor.add_linear_depth_data_to_frame()
         self.sensor.add_azimuth_data_to_frame()
-        # Enable visual debug rays in GUI mode
         self.sensor.enable_visualization(high_lod=False, draw_points=True, draw_lines=False)
         print(f"[INFO] PhysX LiDAR attached: {self.prim_path}")
 
-    def initialize(self):
-        """Must be called after world.reset() to activate physics callbacks."""
+    def initialize(self): #active le LiDAR après reset du monde.
         self.sensor.initialize()
         self.sensor.post_reset()
         print(f"[INFO] LiDAR initialized: {self.prim_path}")
@@ -653,7 +644,6 @@ class LidarReader:
 
         self._read_count += 1
 
-        # Debug: log first few reads and then periodically
         if self._read_count <= 5 or self._read_count % 100 == 0:
             d_info = "None" if depth is None else f"len={len(depth)}"
             a_info = "None" if azimuth is None else f"len={len(azimuth)}"
@@ -664,7 +654,6 @@ class LidarReader:
                 print(f"           range=[{d_arr.min():.2f}, {d_arr.max():.2f}] hits={n_hits}/{len(d_arr)}")
 
         if depth is None or azimuth is None or len(depth) == 0:
-            # sensor not warmed up yet — return max-range (no info)
             n = self.cfg.num_rays
             return (
                 np.linspace(0, 2 * math.pi, n, endpoint=False),
@@ -687,8 +676,7 @@ class LidarReader:
 # 10. Drone Agent (ties AIF logic to physical drone)
 # ════════════════════════════════════════════════════════════════
 
-class DroneAgent:
-    """One drone: belief grid + links to its flight backend and LiDAR sensor."""
+class DroneAgent: 
 
     def __init__(self, drone_id: int, sx: float, sy: float, cfg: SimConfig):
         self.id = drone_id
@@ -731,7 +719,7 @@ class DroneAgent:
         )
 
     def plan(self, others: List[Tuple[float, float]], fused: Optional[BeliefGrid]):
-        """AIF action selection → send new waypoint to the flight backend."""
+       #appelle select action pour choisir une action ==> calculer la cible et envoyer la cible au backend 
         name, dx, dy = select_action(
             self.x, self.y, others, self.belief, fused, self.cfg, self.rng,
         )
@@ -782,16 +770,16 @@ class SwarmCoordinator:
         self.step_count = 0
         self.history: List[Dict] = []
 
-    def step(self):
+    def step(self): #cycle complet multidrone : perception, fusion, planification, logging
         h_before = self.fused_belief.mean_entropy()
-
+#chaque drone met à jour sa carte locale avec son LiDAR.
         for a in self.agents:
             a.perceive()
-
+#combine toutes les cartes locales en une carte globale:
         self.fused_belief = fuse_beliefs_logodds(
             [a.belief for a in self.agents], self.prior_lo,
         )
-
+#planification : chaque drone choisit une action en fonction de sa carte locale et de la carte globale fusionnée, ainsi que de la position des autres drones.
         for a in self.agents:
             others = [(o.x, o.y) for o in self.agents if o.id != a.id]
             a.plan(others, self.fused_belief)
@@ -893,12 +881,10 @@ def _add_scene_lighting():
     stage = omni.usd.get_context().get_stage()
     stage.DefinePrim("/World/Lights", "Xform")
 
-    # Dome light — soft ambient fill
     dome = UsdLux.DomeLight.Define(stage, "/World/Lights/DomeLight")
     dome.CreateIntensityAttr(1000.0)
     dome.CreateColorAttr(Gf.Vec3f(0.85, 0.9, 1.0))  # slightly blue sky
 
-    # Distant light — directional "sun"
     sun = UsdLux.DistantLight.Define(stage, "/World/Lights/Sun")
     sun.CreateIntensityAttr(3000.0)
     sun.CreateAngleAttr(1.0)
