@@ -90,24 +90,24 @@ class SimConfig:
 # ════════════════════════════════════════════════════════════════
 # 2. Math Utilities
 # ════════════════════════════════════════════════════════════════
-
+#eviter les proba non valides 
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
-
+#convertir une proba en log-odds
 def logit(p: float) -> float:
     p = clamp(p, 1e-7, 1 - 1e-7)
     return math.log(p / (1 - p))
 
-
+#log en proba 
 def inv_logit(l: float) -> float:
     return 1.0 / (1.0 + math.exp(-l)) if l >= 0 else math.exp(l) / (1.0 + math.exp(l))
 
-
+#log en proba version array
 def inv_logit_v(arr: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(arr, -30, 30)))
 
-
+#meusure l'incertitude d'une ceullule occupé ou libre
 def bernoulli_entropy(p: float) -> float:
     p = clamp(p, 1e-7, 1 - 1e-7)
     return -(p * math.log(p) + (1 - p) * math.log(1 - p))
@@ -117,21 +117,20 @@ def bernoulli_entropy_v(arr: np.ndarray) -> np.ndarray:
     p = np.clip(arr, 1e-7, 1 - 1e-7)
     return -(p * np.log(p) + (1 - p) * np.log(1 - p))
 
-
+#choisir un action parmi les 9 candidates en fonction de leur score G, avec une temperature pour favoriser les actions les mieux notées ou pour favoriser la diversité des actions choisies
 def softmax_sample(values: np.ndarray, temperature: float, rng: np.random.Generator) -> int:
     temperature = max(temperature, 1e-6)
-    shifted = -(values - np.min(values)) / temperature
+    shifted = -(values - np.min(values)) / temperature 
     weights = np.exp(shifted - np.max(shifted))
     probs = weights / weights.sum()
     return int(rng.choice(len(values), p=probs))
 
 
 # ════════════════════════════════════════════════════════════════
-# 3. Belief Grid (Log-Odds Occupancy)
+# 3. Belief Grid 
 # ════════════════════════════════════════════════════════════════
 
 class BeliefGrid:
-    """2D occupancy grid updated via additive log-odds Bayesian filter."""
 
     def __init__(self, cfg: SimConfig):
         self.width = cfg.grid_width
@@ -139,7 +138,7 @@ class BeliefGrid:
         self.resolution = cfg.grid_resolution
         self.lo_max = cfg.lo_max
         l0 = logit(cfg.prior_occupancy)
-        self.logodds = np.full((self.height, self.width), l0, dtype=np.float64)
+        self.logodds = np.full((self.height, self.width), l0, dtype=np.float64)#retourne une grille de log-odds initialisée à la valeur a priori d'occupation
         self.probability = np.full((self.height, self.width), cfg.prior_occupancy)
 
     def world_to_grid(self, wx: float, wy: float) -> Tuple[int, int]:
@@ -149,7 +148,8 @@ class BeliefGrid:
 
     def in_bounds(self, gx: int, gy: int) -> bool:
         return 0 <= gx < self.width and 0 <= gy < self.height
-
+    
+#mettre ajour une ceullule 
     def update_cell(self, gx: int, gy: int, dl: float):
         if not self.in_bounds(gx, gy):
             return
@@ -159,21 +159,20 @@ class BeliefGrid:
     def update_from_lidar(
         self,
         ox: float, oy: float,
-        angles: np.ndarray,
-        ranges: np.ndarray,
-        hits: np.ndarray,
-        max_range: float,
-        lo_free: float,
-        lo_occ: float,
+        angles: np.ndarray,#angle de chaque rayon du lidar
+        ranges: np.ndarray,#distance mesurée par chaque rayon du lidar
+        hits: np.ndarray,#boolean indiquant si chaque rayon a touché un obstacle ou a atteint la portée maximale
+        max_range: float,#portée maximale du lidar en mètres
+        lo_free: float,#increment de log-odds pour cellule libre
+        lo_occ: float,#increment de log-odds pour cellule occupée
     ):
-        """Inverse sensor model: free cells along ray, occupied at hit."""
         ogx, ogy = self.world_to_grid(ox, oy)
         for i in range(len(angles)):
             cos_a = math.cos(angles[i])
             sin_a = math.sin(angles[i])
-            d = min(float(ranges[i]), max_range) if hits[i] else max_range
+            d = min(float(ranges[i]), max_range) if hits[i] else max_range #distance à parcourir le long du rayon pour atteindre l'obstacle ou la portée maximale
             n_steps = int(d / self.resolution)
-            for s in range(1, n_steps + 1):
+            for s in range(1, n_steps + 1): #pour chaque ceullule traversée par le rayon, on met à jour la croyance de la ceullule en libre ou occupé en fonction de si le rayon a touché un obstacle ou pas
                 wx = ox + s * self.resolution * cos_a
                 wy = oy + s * self.resolution * sin_a
                 gx, gy = self.world_to_grid(wx, wy)
@@ -219,7 +218,7 @@ def fuse_beliefs_logodds(beliefs: List[BeliefGrid], prior_lo: float) -> BeliefGr
     fused.logodds[:] = prior_lo
     for b in beliefs:
         fused.logodds += (b.logodds - prior_lo) / n
-    np.clip(fused.logodds, -fused.lo_max, fused.lo_max, out=fused.logodds)
+    np.clip(fused.logodds, -fused.lo_max, fused.lo_max, out=fused.logodds) #Fusion faite par moyenne des écarts au prior
     fused.probability = inv_logit_v(fused.logodds)
     return fused
 
@@ -249,12 +248,11 @@ for _n, _dx, _dy in _RAW:
     ACTIONS.append((_n, _dx / _norm, _dy / _norm))
 
 
-def expected_info_gain(wx: float, wy: float, belief: BeliefGrid, cfg: SimConfig) -> float:
-    """Epistemic drive: expected entropy reduction by observing from (wx,wy)."""
+def expected_info_gain(wx: float, wy: float, belief: BeliefGrid, cfg: SimConfig) -> float: #score epistémique
     total = 0.0
     for angle in cfg.ray_angles:
         cos_a, sin_a = math.cos(angle), math.sin(angle)
-        p_reach = 1.0
+        p_reach = 1.0 #
         for step in range(1, cfg.max_range_cells + 1):
             cx = wx + step * cfg.grid_resolution * cos_a
             cy = wy + step * cfg.grid_resolution * sin_a
@@ -266,11 +264,10 @@ def expected_info_gain(wx: float, wy: float, belief: BeliefGrid, cfg: SimConfig)
             p_reach *= (1.0 - p_occ)
             if p_reach < 1e-4:
                 break
-    return total
+    return total #plus le score est élevé, plus la position est prometteuse pour réduire l'incertitude de la carte (en observant des zones très incertaines)
 
 
-def frontier_attraction(wx: float, wy: float, belief: BeliefGrid) -> float:
-    """Pragmatic drive: preference for uncertain frontier cells nearby."""
+def frontier_attraction(wx: float, wy: float, belief: BeliefGrid) -> float: #Score élevé = zone avec beaucoup de cellules incertaines proches.
     gx, gy = belief.world_to_grid(wx, wy)
     window = 5
     total, count = 0.0, 0
@@ -282,39 +279,36 @@ def frontier_attraction(wx: float, wy: float, belief: BeliefGrid) -> float:
                 total += (1.0 - abs(2.0 * p - 1.0)) / (math.hypot(dx, dy) + 1.0)
                 count += 1
     return total / max(count, 1)
-
+#Les deux favorisent l’incertain.
+#Mais expected_info_gain = incertain visible par rayons.
+#frontier_attraction = incertain local dans le voisinage.
 
 def select_action(
-    pos_x: float, pos_y: float,
-    others: List[Tuple[float, float]],
+    pos_x: float, pos_y: float,#position du drone 
+    others: List[Tuple[float, float]], #position des autres drones
     belief: BeliefGrid,
     fused: Optional[BeliefGrid],
     cfg: SimConfig,
     rng: np.random.Generator,
 ) -> Tuple[str, float, float]:
-    """
-    Evaluate 9 candidate actions via EFE:
-        G(a) = -w_epi·IG(a) - w_prag·Frontier(a) + w_move·Cost(a) + w_coll·Repulsion(a)
-    Select action via softmax sampling over -G.
-    """
-    plan_belief = mix_beliefs(belief, fused, cfg.fusion_mix) if fused else belief
-    n = len(ACTIONS)
-    G = np.full(n, 1e6)
-    valid = np.zeros(n, dtype=bool)
+    plan_belief = mix_beliefs(belief, fused, cfg.fusion_mix) if fused else belief #on mélange la croyance locale et la croyance fusionnée pour la planification, en fonction du paramètre fusion_mix
+    n = len(ACTIONS) #8 +rester 
+    G = np.full(n, 1e6) #score initialisé grand pour chauqe action 
+    valid = np.zeros(n, dtype=bool) #pou marquer les actions autorisées
 
     for i, (name, dx, dy) in enumerate(ACTIONS):
         nx = pos_x + dx * cfg.step_size
         ny = pos_y + dy * cfg.step_size
-        if not (0.5 <= nx < cfg.env_width - 0.5 and 0.5 <= ny < cfg.env_height - 0.5):
+        if not (0.5 <= nx < cfg.env_width - 0.5 and 0.5 <= ny < cfg.env_height - 0.5):#test pour rester dans les limites de l'environnement (en laissant une marge de 0.5m pour éviter les collisions avec les murs)
             continue
         gx, gy = plan_belief.world_to_grid(nx, ny)
-        if plan_belief.probability[gy, gx] >= cfg.occ_threshold:
+        if plan_belief.probability[gy, gx] >= cfg.occ_threshold: #si occupé 
             continue
         valid[i] = True
-        ig = expected_info_gain(nx, ny, plan_belief, cfg)
-        fr = frontier_attraction(nx, ny, plan_belief)
-        move = 0.0 if name == "stay" else 1.0
-        coll = sum(
+        ig = expected_info_gain(nx, ny, plan_belief, cfg) #gain d’info attendu (exploration utile).
+        fr = frontier_attraction(nx, ny, plan_belief) #attraction de frontière (proximité de zones incertaines).
+        move = 0.0 if name == "stay" else 1.0 #favorise les actions de mouvement par rapport à rester sur place (pour éviter de rester bloqué dans une zone sans faire de progrès)
+        coll = sum( #pénalité pour la collision avec les autres drones (plus la position est proche des autres drones, plus la pénalité est grande)
             1.0 / (math.hypot(nx - ox, ny - oy) + 0.1)
             for ox, oy in others if math.hypot(nx - ox, ny - oy) < 3.0
         )
@@ -322,7 +316,7 @@ def select_action(
 
     if not valid.any():
         valid[0] = True
-        G[0] = 0.0
+        G[0] = 0.0 #force stay si aucune action n'est valide 
     idx = softmax_sample(G, cfg.softmax_temp, rng)
     return ACTIONS[idx]
 
@@ -332,19 +326,15 @@ def select_action(
 # ════════════════════════════════════════════════════════════════
 
 def _lazy_import_backend():
-    """Import Pegasus backend classes — only available inside Isaac Sim env."""
     from pegasus.simulator.logic.backends.backend import Backend, BackendConfig
     from pegasus.simulator.logic.state import State
     from scipy.spatial.transform import Rotation
     return Backend, BackendConfig, State, Rotation
 
-
-# module-level refs filled at runtime
 _Backend = None
 _BackendConfig = None
 _State = None
 _Rotation = None
-
 
 def _ensure_backend_imports():
     global _Backend, _BackendConfig, _State, _Rotation
@@ -352,47 +342,33 @@ def _ensure_backend_imports():
         _Backend, _BackendConfig, _State, _Rotation = _lazy_import_backend()
 
 
-# AifFlightBackend is created at runtime by _create_backend_class() because
-# the Pegasus Backend base class is only importable inside the Isaac Sim env.
-# The factory returns a new class that properly inherits from Backend.
-
-AifFlightBackend = None  # filled by _create_backend_class()
+AifFlightBackend = None  
 
 
 def _create_backend_class():
-    """Build AifFlightBackend as a real Backend subclass (avoids __bases__ hack)."""
     global AifFlightBackend
     _ensure_backend_imports()
 
     class _AifFlightBackend(_Backend):
-        """
-        Custom Pegasus backend: PD controller that tracks 3-D waypoints.
-
-        Follows the same pattern as Pegasus NonlinearController:
-        - update_state() stores position/velocity/attitude each physics tick
-        - update() runs PD control law → computes thrust + torque
-        - force_and_torques_to_velocities() converts to rotor angular velocities
-        - input_reference() returns cached rotor velocities (read by Multirotor)
-        """
-
+      
         def __init__(self, drone_id: int, initial_target: np.ndarray, cfg: SimConfig):
-            # Same pattern as NonlinearController — skip super().__init__()
+            #param decontrole de vol du drone 
             self.drone_id = drone_id
             self.cfg = cfg
             self.target = initial_target.copy()
             self.target_yaw = 0.0
-            self.arrived = False
+            self.arrived = False #pour marquer si le drone est arrivé à sa cible, utilisé pour éviter de continuer à appliquer des commandes de mouvement une fois arrivé à la cible
 
             # State from Pegasus
             self.p = np.zeros(3)
             self.v = np.zeros(3)
             self.R = np.eye(3)
             self.w = np.zeros(3)
-            self.received_first_state = False
+            self.received_first_state = False #
 
-            self.input_ref = [0.0, 0.0, 0.0, 0.0]
-            self._vehicle = None
-            self._update_count = 0
+            self.input_ref = [0.0, 0.0, 0.0, 0.0] #
+            self._vehicle = None 
+            self._update_count = 0 
 
             # PD gains (diagonal matrices)
             self.Kp = np.diag([cfg.kp_xy, cfg.kp_xy, cfg.kp_z])
@@ -400,10 +376,9 @@ def _create_backend_class():
             # Attitude PD gains
             self.Kr = np.diag([3.0, 3.0, cfg.kp_yaw])
             self.Kw = np.diag([0.5, 0.5, 0.3])
-            self.mass = 1.5
+            self.mass = 1.5 
             self.g = 9.81
 
-        # ── target API ──
 
         def set_target(self, x: float, y: float, z: float, yaw: float = 0.0):
             self.target = np.array([x, y, z])
@@ -448,10 +423,6 @@ def _create_backend_class():
             return self.input_ref
 
         def update(self, dt: float):
-            """PD position controller + attitude controller → rotor velocities.
-
-            Follows the NonlinearController pattern from Pegasus examples.
-            """
             if not self.received_first_state:
                 return
 
